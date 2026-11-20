@@ -1,0 +1,21 @@
+name: Deploy to server
+on:
+  push:
+    branches: [naveen/cool-archimedes-hqwj7e, main]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci && npm run build
+      - name: Upload to server
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && echo "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 187.127.149.83 >> ~/.ssh/known_hosts
+          rsync -az --delete -e ssh dist/ root@187.127.149.83:/home/talkfellas/htdocs/talkfellas.com/
+          ssh root@187.127.149.83 'chown -R talkfellas:talkfellas /home/talkfellas/htdocs/talkfellas.com'
