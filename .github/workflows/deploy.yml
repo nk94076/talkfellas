@@ -15,7 +15,7 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.SSH_KEY }}
         run: |
-          mkdir -p ~/.ssh && echo "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          mkdir -p ~/.ssh && printf "%s\n" "$SSH_KEY" | tr -d "\r" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
           [ -n "$SSH_KEY" ] || { echo "SSH_KEY secret is EMPTY or missing"; exit 1; }
           echo "Key fingerprint:"; ssh-keygen -lf ~/.ssh/id_ed25519 || echo "SSH_KEY is not a valid private key"
           ssh-keyscan -H 187.127.149.83 >> ~/.ssh/known_hosts
