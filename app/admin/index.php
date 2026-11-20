@@ -144,16 +144,29 @@ if ($a === 'dashboard') {
     ['mail', $cnt('SELECT COUNT(*) FROM subscribers'), 'Subscribers', '?a=subs'], ['chart', $cnt("SELECT COALESCE(SUM(views),0) FROM posts"), 'Total views', '?a=posts']];
   $recent = db()->query("SELECT id,title,slug,published_at,status FROM posts WHERE type='post' ORDER BY updated_at DESC LIMIT 6")->fetchAll();
   $top = db()->query("SELECT id,title,slug,views_week,views FROM posts WHERE type='post' AND status='published' ORDER BY views_week DESC, views DESC LIMIT 5")->fetchAll();
-  $todo = array_filter(['Add your logo (Settings → General)' => !s('logo_image'), 'Set homepage SEO title & description (Settings → SEO)' => s('seo_home_title') === defaults()['seo_home_title'],
-    'Add Google Search Console code (Settings → SEO)' => !s('seo_google_verify'), 'Upload category images (Categories)' => (bool)$cnt("SELECT COUNT(*) FROM categories WHERE image='' AND show_home=1"),
-    'Add your author photo & bio (Profile)' => !db()->query('SELECT avatar FROM users WHERE id=' . $uid)->fetchColumn(), 'Publish your first post' => !$glance[0][1]]); ?>
-  <h1 class="wp-heading">Dashboard</h1>
+  $me = db()->query('SELECT name, username, avatar FROM users WHERE id=' . $uid)->fetch();
+  $todo = ['Add your logo (Settings → General)' => (bool)s('logo_image'), 'Set homepage SEO title & description (Settings → SEO)' => s('seo_home_title') !== defaults()['seo_home_title'],
+    'Add Google Search Console code (Settings → SEO)' => (bool)s('seo_google_verify'), 'Upload category images (Categories)' => !$cnt("SELECT COUNT(*) FROM categories WHERE image='' AND show_home=1"),
+    'Add your author photo & bio (Profile)' => (bool)$me['avatar'], 'Publish your first post' => (bool)$glance[0][1]];
+  $done = count(array_filter($todo)); $colors = ['violet', 'blue', 'amber', 'rose', 'green', 'indigo']; ?>
+  <div class="page-head"><div><h1>Dashboard</h1><p>Welcome back, <?= e($me['name'] ?: $me['username']) ?> 👋 Here’s what’s happening with your site.</p></div><span class="date-chip"><?= tf_icon('calendar', 16) . date('M j, Y') ?></span></div>
+  <div class="stats"><?php foreach ($glance as $i => [$ic, $n, $l, $u]): ?><a class="stat <?= $colors[$i] ?>" href="<?= $u ?>"><span class="st-ic"><?= tf_icon($ic, 22) ?></span><span><b><?= number_format($n) ?></b><small><?= $l ?></small></span></a><?php endforeach; ?></div>
   <div class="dash">
-    <div class="postbox"><h2 class="hndle">At a Glance</h2><div class="inside glance"><?php foreach ($glance as [$ic, $n, $l, $u]): ?><a href="<?= $u ?>"><?= tf_icon($ic, 18) ?><b><?= number_format($n) ?></b> <?= $l ?></a><?php endforeach; ?></div></div>
-    <div class="postbox"><h2 class="hndle">Quick Draft</h2><form class="inside" method="post" action="?a=quickdraft"><?= csrf_field() ?><label>Title<input name="title"></label><label>Content<textarea name="content" rows="4" placeholder="What's on your mind?"></textarea></label><button class="button button-primary">Save Draft</button></form></div>
-    <div class="postbox"><h2 class="hndle">Activity — Recently Edited</h2><div class="inside"><ul class="activity"><?php foreach ($recent as $r): ?><li><span><?= e(nice_date($r['published_at'], 'M j, g:i a')) ?></span><a href="?a=edit&id=<?= $r['id'] ?>"><?= e($r['title']) ?></a><?= $r['status'] === 'draft' ? ' <em>— Draft</em>' : '' ?></li><?php endforeach; if (!$recent) echo '<li>No posts yet.</li>'; ?></ul></div></div>
-    <div class="postbox"><h2 class="hndle">Popular This Week</h2><div class="inside"><ul class="activity"><?php foreach ($top as $r): ?><li><span><?= (int)$r['views_week'] ?> views</span><a href="/<?= e($r['slug']) ?>" target="_blank"><?= e($r['title']) ?></a></li><?php endforeach; if (!$top) echo '<li>No views yet.</li>'; ?></ul></div></div>
-    <?php if ($todo): ?><div class="postbox"><h2 class="hndle">Site Setup Checklist</h2><div class="inside"><ul class="todo"><?php foreach ($todo as $t => $_): ?><li><?= e($t) ?></li><?php endforeach; ?></ul></div></div><?php endif; ?>
+    <div class="card"><div class="card-h"><?= tf_icon('doc', 22) ?><div><h2>Quick Draft</h2></div></div>
+      <form method="post" action="?a=quickdraft"><?= csrf_field() ?><label>Title<input name="title" placeholder="Enter post title…"></label><label>Content<textarea name="content" rows="4" placeholder="What’s on your mind?"></textarea></label>
+      <div class="btns"><button class="button button-primary"><?= tf_icon('doc', 16) ?> Save Draft</button><button type="reset" class="button">↻ Clear</button></div></form></div>
+    <div class="card"><div class="card-h"><?= tf_icon('chart', 22) ?><div><h2>At a Glance</h2><small>A quick overview of your content.</small></div></div>
+      <ul class="glance"><?php foreach ($glance as $i => [$ic, $n, $l, $u]): ?><li><a href="<?= $u ?>"><span class="g-ic <?= $colors[$i] ?>"><?= tf_icon($ic, 15) ?></span><?= $l ?><b><?= number_format($n) ?></b></a></li><?php endforeach; ?></ul></div>
+    <div class="card"><div class="card-h"><?= tf_icon('clock', 22) ?><div><h2>Activity — Recently Edited</h2></div><a class="more" href="?a=posts">View All ›</a></div>
+      <?php if ($recent): ?><ul class="activity"><?php foreach ($recent as $r): ?><li><a href="?a=edit&id=<?= $r['id'] ?>"><?= e($r['title']) ?></a><span><?= $r['status'] === 'draft' ? '<em class="tag-draft">Draft</em>' : '' ?><?= e(nice_date($r['published_at'], 'M j')) ?></span></li><?php endforeach; ?></ul>
+      <?php else: ?><div class="empty"><span class="em-ic"><?= tf_icon('doc', 40) ?></span><b>No posts yet</b><p>Once you create or edit a post, it will appear here.</p><a class="button button-primary" href="?a=edit&type=post">+ Create Your First Post</a></div><?php endif; ?></div>
+  </div>
+  <div class="dash two">
+    <div class="card"><div class="card-h"><span class="fire">🔥</span><div><h2>Popular This Week</h2><small>Your most viewed posts from the last 7 days.</small></div></div>
+      <?php if ($top && $top[0]['views_week']): ?><ol class="pop"><?php foreach ($top as $i => $r): ?><li><span class="n"><?= $i + 1 ?></span><a href="/<?= e($r['slug']) ?>" target="_blank"><?= e($r['title']) ?></a><b><?= (int)$r['views_week'] ?> views</b></li><?php endforeach; ?></ol>
+      <?php else: ?><div class="empty sm"><span class="em-ic"><?= tf_icon('chart', 30) ?></span><b>No views yet</b><p>Content views will appear here once your posts start getting traffic.</p></div><?php endif; ?></div>
+    <div class="card"><div class="card-h"><?= tf_icon('shield', 22) ?><div><h2>Site Setup Checklist</h2><small>Get your site ready for launch.</small></div><div class="prog"><small><?= $done ?> of <?= count($todo) ?> completed</small><span><i style="width:<?= round($done / count($todo) * 100) ?>%"></i></span></div></div>
+      <ul class="todo"><?php foreach ($todo as $t => $ok): ?><li class="<?= $ok ? 'ok' : '' ?>"><span class="cb"><?= $ok ? '✓' : '' ?></span><?= e($t) ?></li><?php endforeach; ?></ul></div>
   </div>
 <?php } elseif ($a === 'posts' || $a === 'pages') {
   $type = $a === 'pages' ? 'page' : 'post'; $q = trim($_GET['q'] ?? ''); $stf = in_array($_GET['status'] ?? '', ['published', 'draft']) ? $_GET['status'] : '';
@@ -292,26 +305,36 @@ if ($a === 'dashboard') {
   <table class="wp-list-table"><tr><th>From</th><th>To</th><th></th></tr><?php foreach (db()->query('SELECT * FROM redirects ORDER BY src') as $r): ?><tr><td><?= e($r['src']) ?></td><td><?= e($r['dest']) ?></td>
     <td><form method="post"><?= csrf_field() ?><input type="hidden" name="del" value="<?= e($r['src']) ?>"><button class="link danger">Delete</button></form></td></tr><?php endforeach; ?></table>
 <?php }
-echo '</main><footer id="wpfooter">Thank you for creating with ' . e(s('site_name')) . ' CMS.</footer><script>window.CSRF=' . json_encode(csrf()) . ';</script></body></html>';
+echo '</main></div><script>window.CSRF=' . json_encode(csrf()) . ';</script></body></html>';
 
 /* ---------- view helpers ---------- */
 function admin_head(string $a, string $flash): void {
-  $nav = ['dashboard' => ['home', 'Dashboard'], 'posts' => ['doc', 'Posts'], 'pages' => ['book', 'Pages'], 'cats' => ['grid', 'Categories'], 'subs' => ['mail', 'Subscribers'], 'settings' => ['gear', 'Settings'], 'redirects' => ['arrow', 'Redirects'], 'profile' => ['user', 'Profile']];
-  $cur = $a === 'edit' ? ((($_GET['type'] ?? '') === 'page') ? 'pages' : 'posts') : ($a === 'quickdraft' ? 'dashboard' : $a);
-  $me = db()->query('SELECT name, username, avatar FROM users WHERE id=' . (int)$_SESSION['uid'])->fetch(); ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e(ucfirst($cur)) ?> ‹ <?= e(s('site_name')) ?> — Admin</title><link rel="stylesheet" href="/admin/admin.css?v=3"></head><body class="wp-admin">
-<div id="adminbar"><button class="ab-menu" onclick="document.body.classList.toggle('menu-open')" aria-label="Menu"><?= tf_icon('menu', 18) ?></button>
-  <a href="/" target="_blank" class="ab-site"><?= tf_icon('home', 16) ?> <?= e(s('site_name')) ?></a>
-  <a href="?a=edit&type=post" class="ab-new">+ New</a>
-  <span class="ab-right"><span class="ab-user">Howdy, <b><?= e($me['name'] ?: $me['username']) ?></b><?= $me['avatar'] ? '<img src="' . e($me['avatar']) . '" alt="">' : '' ?></span><a href="?a=logout">Log Out</a></span></div>
-<div id="adminmenu"><ul><?php foreach ($nav as $k => [$ic, $l]): ?><li class="<?= $cur === $k ? 'current' : '' ?>"><a href="?a=<?= $k ?>"><?= tf_icon($ic, 18) ?><span><?= $l ?></span></a>
-  <?php if ($cur === $k && in_array($k, ['posts', 'pages'])): ?><ul class="submenu"><li><a href="?a=<?= $k ?>">All <?= $l ?></a></li><li><a href="?a=edit&type=<?= $k === 'pages' ? 'page' : 'post' ?>">Add New</a></li><?php if ($k === 'posts'): ?><li><a href="?a=cats">Categories</a></li><?php endif; ?></ul><?php endif; ?></li><?php endforeach; ?>
-  <li><a href="/" target="_blank"><?= tf_icon('globe', 18) ?><span>Visit Site</span></a></li></ul></div>
-<main id="wpcontent"><?php if ($flash): ?><div class="notice"><p><?= $flash ?></p></div><?php endif;
+  $nav = [['dashboard', 'home', 'Dashboard'], ['posts', 'doc', 'Posts'], ['pages', 'book', 'Pages'], ['cats', 'grid', 'Categories'], ['subs', 'users', 'Subscribers'], '-',
+    ['settings', 'gear', 'Settings'], ['redirects', 'arrow', 'Redirects'], ['profile', 'user', 'Profile']];
+  $cur = $a === 'edit' ? ((($_GET['type'] ?? '') === 'page' || (isset($_GET['id']) && db()->query('SELECT type FROM posts WHERE id=' . (int)$_GET['id'])->fetchColumn() === 'page')) ? 'pages' : 'posts') : ($a === 'quickdraft' ? 'dashboard' : $a);
+  $me = db()->query('SELECT name, username, avatar FROM users WHERE id=' . (int)$_SESSION['uid'])->fetch(); $nm = $me['name'] ?: $me['username'];
+  $titles = ['dashboard' => 'Dashboard', 'posts' => 'Posts', 'pages' => 'Pages', 'cats' => 'Categories', 'subs' => 'Subscribers', 'settings' => 'Settings', 'redirects' => 'Redirects', 'profile' => 'Profile']; ?>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e($titles[$cur] ?? 'Admin') ?> · <?= e(s('site_name')) ?> CMS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"><link rel="stylesheet" href="/admin/admin.css?v=4"></head><body class="cms">
+<aside id="sidebar">
+  <a class="sb-brand" href="?a=dashboard"><span class="sb-logo"><?= tf_icon('users', 22) ?></span><span><?= e(s('site_name')) ?><br>CMS</span></a>
+  <nav><?php foreach ($nav as $n): if ($n === '-') { echo '<hr>'; continue; } [$k, $ic, $l] = $n; ?><a class="<?= $cur === $k ? 'on' : '' ?>" href="?a=<?= $k ?>"><?= tf_icon($ic, 19) ?><span><?= $l ?></span></a><?php endforeach; ?>
+    <a href="/" target="_blank"><?= tf_icon('globe', 19) ?><span>Visit Site</span><i class="ext">↗</i></a></nav>
+  <div class="sb-card"><span class="crown"><?= tf_icon('trophy', 18) ?></span><b><?= e(s('site_name')) ?> CMS v1.0</b><p>Manage your blog, content and audience easily.</p></div>
+</aside>
+<div id="main">
+  <header id="topbar">
+    <button class="tb-btn" onclick="document.body.classList.toggle('sb-open')" aria-label="Menu"><?= tf_icon('menu', 22) ?></button>
+    <form class="tb-search" action="/admin/"><input type="hidden" name="a" value="posts"><?= tf_icon('search', 18) ?><input type="search" name="q" placeholder="Search posts, pages or categories…" aria-label="Search"></form>
+    <a class="tb-btn bell" href="?a=subs" aria-label="Subscribers"><?= tf_icon('mail', 20) ?><?php if ((int)db()->query("SELECT COUNT(*) FROM subscribers WHERE created_at >= datetime('now','-7 days')")->fetchColumn()): ?><i></i><?php endif; ?></a>
+    <details class="tb-user"><summary><?= $me['avatar'] ? '<img src="' . e($me['avatar']) . '" alt="">' : '<span class="av">' . e(strtoupper(mb_substr($nm, 0, 1))) . '</span>' ?><span class="who"><b><?= e($nm) ?></b><small>Administrator</small></span><?= tf_icon('chev-d', 16) ?></summary>
+      <div class="menu"><a href="?a=profile">Profile</a><a href="?a=settings">Settings</a><a href="/" target="_blank">Visit Site</a><a href="?a=logout" class="danger">Log Out</a></div></details>
+  </header>
+  <main id="content"><?php if ($flash): ?><div class="notice"><?= $flash ?></div><?php endif;
 }
 function auth_page(string $title, string $btn, string $err): void { ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e($title) ?></title><link rel="stylesheet" href="/admin/admin.css?v=3"></head>
-<body class="login"><div class="login-wrap"><div class="login-logo"><?= e(s('site_name')) ?></div><form method="post" class="auth-box"><h1><?= e($title) ?></h1><?php if ($err): ?><div class="flash err"><?= e($err) ?></div><?php endif; ?>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e($title) ?></title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"><link rel="stylesheet" href="/admin/admin.css?v=4"></head>
+<body class="login"><div class="login-wrap"><div class="login-logo"><span class="sb-logo"><?= tf_icon('users', 22) ?></span><?= e(s('site_name')) ?> CMS</div><form method="post" class="auth-box"><h1><?= e($title) ?></h1><?php if ($err): ?><div class="flash err"><?= e($err) ?></div><?php endif; ?>
 <?= csrf_field() ?><label>Username<input name="username" required autofocus autocomplete="username"></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button class="button button-primary button-large block"><?= e($btn) ?></button></form><p class="backto"><a href="/">← Go to <?= e(s('site_name')) ?></a></p></div></body></html>
 <?php }
 function seed(): void {
