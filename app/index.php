@@ -166,6 +166,18 @@ function newsletter(): void { $ext = s('news_action'); ?>
 </div></section>
 <?php }
 
+/* ========== AFFILIATE CLICK TRACKING (staff & bots ignored) ========== */
+if ($path === 'track' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+  http_response_code(204);
+  if (is_staff() || preg_match('/bot|crawl|spider|slurp|preview/i', $_SERVER['HTTP_USER_AGENT'] ?? '')) exit;
+  $d = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+  $pid = (int)($d['post'] ?? 0); $url = mb_substr((string)($d['url'] ?? ''), 0, 500); $label = mb_substr((string)($d['label'] ?? ''), 0, 200);
+  if (!preg_match('#^https?://#', $url)) exit;
+  db()->prepare('INSERT INTO clicks (post_id, url, label, created_at) VALUES (?,?,?,?)')->execute([$pid ?: null, $url, $label, now()]);
+  if ($pid) db()->prepare('UPDATE posts SET clicks=clicks+1 WHERE id=?')->execute([$pid]);
+  exit;
+}
+
 /* ========== NEWSLETTER SUBMIT ========== */
 if ($path === 'subscribe' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $email = strtolower(trim($_POST['email'] ?? ''));
@@ -226,15 +238,16 @@ if (preg_match('#^[a-z0-9-]+$#', $path)) {
   <?php foot(); exit; }
 
   // count views (weekly + total), skip bots
-  if (!preg_match('/bot|crawl|spider|slurp|preview/i', $_SERVER['HTTP_USER_AGENT'] ?? '')) {
+  if (!is_staff() && !preg_match('/bot|crawl|spider|slurp|preview/i', $_SERVER['HTTP_USER_AGENT'] ?? '')) {
     $wk = date('oW');
     db()->prepare('UPDATE posts SET views=views+1, views_week=CASE WHEN views_wk=? THEN views_week+1 ELSE 1 END, views_wk=? WHERE id=?')->execute([$wk, $wk, $p['id']]);
   }
   $st = db()->prepare('SELECT * FROM products WHERE post_id=? ORDER BY rank'); $st->execute([$p['id']]); $products = $st->fetchAll();
-  [$intro] = with_toc(clean_html($p['intro'])); [$content, $toc] = with_toc(clean_html($p['content']));
+  [$intro] = with_toc(aff_links(clean_html($p['intro']), $p)); $body = clean_html($p['content']); $hasCta = str_contains($body, '{{cta}}');
+  [$content, $toc] = with_toc(aff_links($body, $p)); if (!$hasCta) $content .= cta_box($p);
   $related = $p['category_id'] ? posts('p.category_id=? AND p.id<>?', [$p['category_id'], $p['id']], 3) : [];
   $url = SITE_URL . post_url($p);
-  $seo['type'] = 'article'; $seo['published'] = date('c', strtotime($p['published_at'])); $seo['modified'] = date('c', strtotime($p['updated_at']));
+  $seo['type'] = 'article'; $seo['post_id'] = $p['id']; $seo['published'] = date('c', strtotime($p['published_at'])); $seo['modified'] = date('c', strtotime($p['updated_at']));
   $seo['schema'][] = ['@context' => 'https://schema.org', '@type' => 'BlogPosting', 'headline' => $p['title'], 'description' => $seo['desc'], 'mainEntityOfPage' => $url,
     'image' => $p['image'] ? [abs_url($p['image'])] : null, 'datePublished' => $seo['published'], 'dateModified' => $seo['modified'],
     'author' => ['@type' => 'Person', 'name' => $p['author_name'] ?: 'Editorial Team'], 'publisher' => ['@type' => 'Organization', 'name' => s('site_name'), 'logo' => abs_url(s('seo_org_logo') ?: s('logo_image')) ?: null],
@@ -269,7 +282,7 @@ if (preg_match('#^[a-z0-9-]+$#', $path)) {
           </div>
         <?php endforeach; ?>
       <?php endif; ?>
-      <?php if ($content): ?><div class="entry"><?= $content ?></div><?php endif; ?>
+      <?php if ($content): ?><div class="entry<?= $p['numbered'] ? ' numbered' : '' ?>"><?= $content ?></div><?php endif; ?>
       <?php if ($p['tags']): ?><div class="post-tags"><?php foreach (array_filter(array_map('trim', explode(',', $p['tags']))) as $t): ?><a href="/tag/<?= e(slugify($t)) ?>">#<?= e($t) ?></a><?php endforeach; ?></div><?php endif; ?>
       <div class="share"><span>Share:</span>
         <a href="https://twitter.com/intent/tweet?url=<?= urlencode($url) ?>&text=<?= urlencode($p['title']) ?>" target="_blank" rel="noopener" aria-label="Share on X"><?= tf_icon('x-social', 16) ?></a>

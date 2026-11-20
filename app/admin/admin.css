@@ -105,3 +105,4 @@ input[type=checkbox]{width:18px;height:18px;min-height:0;margin:0;accent-color:v
 .login-wrap{width:100%;max-width:400px}.login-logo{display:flex;align-items:center;justify-content:center;gap:12px;color:#fff;font:800 22px Inter,sans-serif;margin-bottom:22px}
 .auth-box{background:#fff;border-radius:20px;padding:30px;box-shadow:0 20px 60px rgba(0,0,0,.3)}.auth-box h1{font-size:20px;color:var(--ink);margin:0 0 6px}.auth-box .button{margin-top:20px}
 .backto{text-align:center;margin-top:18px}.backto a{color:#c9cde3;text-decoration:none}
+.plain{list-style:none;padding:0;margin:8px 0;line-height:1.6}.plain li{padding:5px 0;color:var(--ink)}

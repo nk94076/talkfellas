@@ -147,3 +147,10 @@ h1,h2,h3,h4{font-family:var(--serif);color:var(--ink);line-height:1.18;margin:0;
 .share{display:flex;align-items:center;gap:8px;margin-top:24px;font-weight:600;font-size:14px}.share a{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--soft);color:var(--ink)}.share a:hover{background:var(--brand);color:#fff}
 .cat-list a:hover{color:var(--brand)}.sidebar .popular{position:sticky;top:90px}
 .entry iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:12px}
+/* Affiliate CTA box + numbered headings */
+.cta-box{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;background:linear-gradient(135deg,var(--soft),var(--card));border:1px solid color-mix(in srgb,var(--brand) 20%,var(--line));border-radius:18px;padding:26px 30px;margin:34px 0}
+.cta-box>div{flex:1;min-width:240px}.cta-box .eyebrow{margin-bottom:4px}.cta-box h3{font-size:26px;margin:0 0 6px}.cta-box p{margin:0;color:var(--mut);font-size:16px}
+.cta-box .btn{padding:14px 26px;font-size:16px;border-radius:14px;box-shadow:0 10px 24px color-mix(in srgb,var(--brand) 30%,transparent);text-decoration:none!important;color:#fff!important}
+.entry a.aff{font-weight:600}
+.entry.numbered{counter-reset:h2}.entry.numbered>h2{counter-increment:h2;display:flex;align-items:center;gap:14px}
+.entry.numbered>h2:before{content:counter(h2);flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;font:700 16px var(--sans)}

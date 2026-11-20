@@ -47,6 +47,8 @@ function defaults(): array {
     'seo_google_verify' => '', 'seo_bing_verify' => '', 'seo_ga_id' => '', 'head_code' => '', 'footer_code' => '',
     'seo_org_name' => 'Talk Fellas', 'seo_org_logo' => '',
     'robots_extra' => '',
+    'ai_api_key' => '', 'ai_model' => 'claude-sonnet-5-5', 'ai_words' => '1500', 'ai_language' => 'English', 'ai_tone' => 'friendly, helpful and trustworthy',
+    'cta_eyebrow' => 'READY TO EXPLORE?', 'track_clicks' => '1',
   ];
 }
 function s(string $k): string {
@@ -137,3 +139,30 @@ function start_session(): void {
 function csrf(): string { start_session(); return $_SESSION['csrf'] ??= bin2hex(random_bytes(16)); }
 function csrf_field(): string { return '<input type="hidden" name="csrf" value="' . csrf() . '">'; }
 function check_csrf(): void { start_session(); if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) { http_response_code(400); exit('Invalid request. Go back and try again.'); } }
+
+/* ---------- Staff (logged-in admins/editors) are excluded from analytics ---------- */
+function staff_secret(): string {
+  $k = s('staff_secret'); if ($k !== '') return $k;
+  $k = bin2hex(random_bytes(16)); db()->prepare("INSERT OR REPLACE INTO settings (k, v) VALUES ('staff_secret', ?)")->execute([$k]); return $k;
+}
+function set_staff_cookie(int $uid): void { setcookie('tf_staff', $uid . '.' . hash_hmac('sha256', (string)$uid, staff_secret()), ['expires' => time() + 86400 * 365, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax', 'secure' => !empty($_SERVER['HTTPS'])]); }
+function is_staff(): bool {
+  static $r; if ($r !== null) return $r;
+  $c = $_COOKIE['tf_staff'] ?? ''; if (!str_contains($c, '.')) return $r = false;
+  [$id, $sig] = explode('.', $c, 2);
+  return $r = hash_equals(hash_hmac('sha256', $id, staff_secret()), $sig);
+}
+/* ---------- Affiliate CTA box ---------- */
+function cta_box(array $p): string {
+  if (!$p['aff_url']) return '';
+  $name = $p['aff_name'] ?: 'the official site';
+  return '<div class="cta-box"><div><span class="eyebrow">' . e(s('cta_eyebrow')) . '</span><h3>' . e($p['aff_name'] ?: $p['title']) . '</h3>' . ($p['aff_desc'] ? '<p>' . e($p['aff_desc']) . '</p>' : '') . '</div>'
+    . '<a class="btn aff" href="' . e(safe_url($p['aff_url'])) . '" rel="nofollow sponsored noopener" target="_blank" data-aff="' . e($p['aff_name']) . '">' . e($p['aff_btn'] ?: 'Visit ' . $name) . ' ' . tf_icon('arrow', 16) . '</a></div>';
+}
+// Replace {{aff}}text{{/aff}} markers written by the AI with the real affiliate link.
+function aff_links(string $html, array $p): string {
+  if (!$p['aff_url']) return preg_replace('#\{\{aff\}\}(.*?)\{\{/aff\}\}#s', '$1', $html);
+  $a = '<a class="aff" href="' . e(safe_url($p['aff_url'])) . '" rel="nofollow sponsored noopener" target="_blank" data-aff="' . e($p['aff_name']) . '">';
+  $html = preg_replace('#\{\{aff\}\}(.*?)\{\{/aff\}\}#s', $a . '$1</a>', $html);
+  return str_replace('{{cta}}', cta_box($p), $html);
+}

@@ -26,6 +26,15 @@ function db(): PDO {
       link TEXT DEFAULT '', store TEXT DEFAULT 'Amazon', button TEXT DEFAULT 'Check Price');
     CREATE TABLE IF NOT EXISTS subscribers (email TEXT PRIMARY KEY, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS redirects (src TEXT PRIMARY KEY, dest TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS clicks (id INTEGER PRIMARY KEY, post_id INTEGER, url TEXT, label TEXT, created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS ix_clicks ON clicks(post_id, created_at);
   ");
+  // add columns to older databases
+  $add = ['users' => ['role' => "TEXT DEFAULT 'admin'", 'email' => "TEXT DEFAULT ''"],
+          'posts' => ['aff_name' => "TEXT DEFAULT ''", 'aff_url' => "TEXT DEFAULT ''", 'aff_desc' => "TEXT DEFAULT ''", 'aff_btn' => "TEXT DEFAULT ''", 'numbered' => 'INTEGER DEFAULT 0', 'clicks' => 'INTEGER DEFAULT 0']];
+  foreach ($add as $t => $cols) {
+    $have = array_column($pdo->query("PRAGMA table_info($t)")->fetchAll(), 'name');
+    foreach ($cols as $c => $def) if (!in_array($c, $have, true)) $pdo->exec("ALTER TABLE $t ADD COLUMN $c $def");
+  }
   return $pdo;
 }

@@ -29,22 +29,27 @@ if (!$hasUser) {
   if ($post) {
     check_csrf(); $u = trim($_POST['username'] ?? ''); $p = $_POST['password'] ?? '';
     if (strlen($u) < 3 || strlen($p) < 10) $err = 'Username min 3 chars, password min 10 chars.';
-    else { db()->prepare('INSERT INTO users (username, pass_hash, name) VALUES (?,?,?)')->execute([$u, password_hash($p, PASSWORD_DEFAULT), $u]); seed(); session_regenerate_id(true); $_SESSION['uid'] = 1; go('', 'Welcome! Your site is ready — start with Settings, then add posts.'); }
+    else { db()->prepare("INSERT INTO users (username, pass_hash, name, role) VALUES (?,?,?,'admin')")->execute([$u, password_hash($p, PASSWORD_DEFAULT), $u]); seed(); session_regenerate_id(true); $_SESSION['uid'] = 1; set_staff_cookie(1); go('', 'Welcome! Your site is ready — start with Settings, then add posts.'); }
   }
   auth_page('Create admin account', 'Create Account', $err); exit;
 }
-if ($a === 'logout') { $_SESSION = []; session_destroy(); go(''); }
+if ($a === 'logout') { $_SESSION = []; session_destroy(); go(''); } // staff cookie is kept so your own visits stay excluded from stats
 if (empty($_SESSION['uid'])) {
   $err = '';
   if ($post) {
     check_csrf(); $_SESSION['tries'] = ($_SESSION['tries'] ?? 0) + 1; if ($_SESSION['tries'] > 5) sleep(min(10, $_SESSION['tries']));
     $st = db()->prepare('SELECT * FROM users WHERE username=?'); $st->execute([trim($_POST['username'] ?? '')]); $u = $st->fetch();
-    if ($u && password_verify($_POST['password'] ?? '', $u['pass_hash'])) { session_regenerate_id(true); $_SESSION['uid'] = $u['id']; $_SESSION['tries'] = 0; go(''); }
+    if ($u && password_verify($_POST['password'] ?? '', $u['pass_hash'])) { session_regenerate_id(true); $_SESSION['uid'] = $u['id']; $_SESSION['tries'] = 0; set_staff_cookie((int)$u['id']); go(''); }
     $err = 'Wrong username or password.';
   }
   auth_page('Admin Login', 'Log In', $err); exit;
 }
 $uid = (int)$_SESSION['uid'];
+$ME = db()->query('SELECT * FROM users WHERE id=' . $uid)->fetch();
+if (!$ME) { $_SESSION = []; go(''); }
+$ROLE = $ME['role'] ?: 'admin';
+$ADMIN_ONLY = ['settings', 'users', 'user-save', 'user-del', 'redirects', 'subs', 'export', 'sub-del'];
+if ($ROLE !== 'admin' && in_array($a, $ADMIN_ONLY, true)) go('', 'Only administrators can open that page.');
 
 /* ---------- Actions ---------- */
 if ($a === 'upload' && $post) {
@@ -73,6 +78,7 @@ if ($a === 'save' && $post) {
     'in_hero' => (int)!empty($_POST['in_hero']), 'is_pick' => (int)!empty($_POST['is_pick']), 'tags' => implode(', ', array_filter(array_map('trim', explode(',', $_POST['tags'] ?? '')))),
     'meta_title' => trim($_POST['meta_title'] ?? ''), 'meta_desc' => trim($_POST['meta_desc'] ?? ''), 'focus_kw' => trim($_POST['focus_kw'] ?? ''),
     'canonical' => trim($_POST['canonical'] ?? ''), 'noindex' => (int)!empty($_POST['noindex']), 'og_image' => trim($_POST['og_image'] ?? ''),
+    'aff_name' => trim($_POST['aff_name'] ?? ''), 'aff_url' => trim($_POST['aff_url'] ?? ''), 'aff_desc' => trim($_POST['aff_desc'] ?? ''), 'aff_btn' => trim($_POST['aff_btn'] ?? ''), 'numbered' => (int)!empty($_POST['numbered']),
     'published_at' => date('Y-m-d H:i:s', $pub), 'updated_at' => now()];
   $pdo = db(); $pdo->beginTransaction();
   if ($id) {
@@ -102,7 +108,7 @@ if ($a === 'cat-save' && $post) {
 if ($a === 'cat-del' && $post) { check_csrf(); db()->prepare('DELETE FROM categories WHERE id=?')->execute([(int)$_POST['id']]); go('a=cats', 'Category deleted.'); }
 if ($a === 'settings' && $post) {
   check_csrf(); $ins = db()->prepare('INSERT OR REPLACE INTO settings (k, v) VALUES (?,?)'); $d = defaults();
-  foreach ($_POST['s'] ?? [] as $k => $v) if (array_key_exists($k, $d)) $ins->execute([$k, is_array($v) ? end($v) : trim($v)]);
+  foreach ($_POST['s'] ?? [] as $k => $v) { if (!array_key_exists($k, $d) || ($k === 'ai_api_key' && trim($v) === '')) continue; $ins->execute([$k, is_array($v) ? end($v) : trim($v)]); }
   go('a=settings&tab=' . urlencode($_POST['tab'] ?? ''), 'Settings saved ✓');
 }
 if ($a === 'profile' && $post) {
@@ -134,6 +140,43 @@ if ($a === 'quickdraft' && $post) {
   go('', 'Draft saved. <a href="?a=edit&id=' . db()->lastInsertId() . '">Edit draft →</a>');
 }
 
+if ($a === 'user-save' && $post) {
+  check_csrf(); $id = (int)($_POST['id'] ?? 0); $un = trim($_POST['username'] ?? ''); $pw = $_POST['password'] ?? '';
+  $role = in_array($_POST['role'] ?? '', ['admin', 'editor'], true) ? $_POST['role'] : 'editor';
+  if (!preg_match('/^[A-Za-z0-9_.@-]{3,40}$/', $un)) go('a=users' . ($id ? "&id=$id" : ''), 'Username: 3–40 letters, numbers or . _ - @');
+  if (!$id && strlen($pw) < 10) go('a=users', 'Password must be at least 10 characters.');
+  if ($id === $uid && $role !== 'admin') go('a=users', 'You cannot remove your own admin role.');
+  try {
+    if ($id) {
+      db()->prepare('UPDATE users SET username=?, name=?, email=?, role=? WHERE id=?')->execute([$un, trim($_POST['name'] ?? ''), trim($_POST['email'] ?? ''), $role, $id]);
+      if ($pw !== '') { if (strlen($pw) < 10) go("a=users&id=$id", 'Password must be at least 10 characters.'); db()->prepare('UPDATE users SET pass_hash=? WHERE id=?')->execute([password_hash($pw, PASSWORD_DEFAULT), $id]); }
+    } else db()->prepare('INSERT INTO users (username, pass_hash, name, email, role) VALUES (?,?,?,?,?)')->execute([$un, password_hash($pw, PASSWORD_DEFAULT), trim($_POST['name'] ?? ''), trim($_POST['email'] ?? ''), $role]);
+  } catch (PDOException) { go('a=users', 'That username is already taken.'); }
+  go('a=users', 'User saved ✓');
+}
+if ($a === 'user-del' && $post) {
+  check_csrf(); $id = (int)($_POST['id'] ?? 0); if ($id === $uid) go('a=users', 'You cannot delete yourself.');
+  db()->prepare('UPDATE posts SET author_id=? WHERE author_id=?')->execute([$uid, $id]); db()->prepare('DELETE FROM users WHERE id=?')->execute([$id]); go('a=users', 'User deleted. Their posts were moved to you.');
+}
+if ($a === 'ai-gen' && $post) {
+  check_csrf(); @set_time_limit(300);
+  $in = ['title' => trim($_POST['title'] ?? ''), 'aff_url' => trim($_POST['aff_url'] ?? ''), 'aff_name' => trim($_POST['aff_name'] ?? ''), 'notes' => trim($_POST['notes'] ?? ''),
+    'keyword' => trim($_POST['keyword'] ?? ''), 'words' => max(500, min(4000, (int)($_POST['words'] ?? s('ai_words')))), 'category_id' => (int)($_POST['category_id'] ?? 0)];
+  $_SESSION['ai_form'] = $in;
+  if ($in['title'] === '') go('a=ai', 'Title is required.');
+  if ($in['aff_url'] !== '' && !preg_match('#^https?://#i', $in['aff_url'])) go('a=ai', 'Affiliate link must start with http:// or https://');
+  [$out, $err] = ai_write($in);
+  if ($err) go('a=ai', '<b>AI error:</b> ' . e($err));
+  $slug = slugify(slugify((string)($out['slug'] ?? '')) !== '' && !empty($out['slug']) ? $out['slug'] : $in['title']); $chk = db()->prepare('SELECT COUNT(*) FROM posts WHERE slug=?'); $chk->execute([$slug]); if ($chk->fetchColumn()) $slug .= '-' . bin2hex(random_bytes(2));
+  $f = ['type' => 'post', 'title' => $in['title'], 'slug' => $slug, 'excerpt' => mb_substr(trim($out['excerpt'] ?? ''), 0, 300), 'intro' => '', 'content' => $out['content_html'] ?? '',
+    'category_id' => $in['category_id'] ?: null, 'author_id' => $uid, 'status' => 'draft', 'tags' => implode(', ', array_slice((array)($out['tags'] ?? []), 0, 8)),
+    'meta_title' => mb_substr(trim($out['meta_title'] ?? ''), 0, 70), 'meta_desc' => mb_substr(trim($out['meta_description'] ?? ''), 0, 170), 'focus_kw' => $in['keyword'] ?: trim($out['focus_keyword'] ?? ''),
+    'aff_name' => $in['aff_name'], 'aff_url' => $in['aff_url'], 'aff_desc' => mb_substr(trim($out['cta_description'] ?? ''), 0, 220), 'aff_btn' => '', 'numbered' => 1, 'published_at' => now(), 'updated_at' => now()];
+  db()->prepare('INSERT INTO posts (' . implode(',', array_keys($f)) . ') VALUES (:' . implode(',:', array_keys($f)) . ')')->execute($f);
+  unset($_SESSION['ai_form']);
+  go('a=edit&id=' . db()->lastInsertId(), 'AI draft ready ✓ — review it, add a featured image, then set Status → Published.');
+}
+
 /* ================= Views ================= */
 admin_head($a, $flash);
 if ($a === 'dashboard') {
@@ -141,14 +184,14 @@ if ($a === 'dashboard') {
   $glance = [['doc', $cnt("SELECT COUNT(*) FROM posts WHERE type='post' AND status='published'"), 'Published posts', '?a=posts&status=published'],
     ['book', $cnt("SELECT COUNT(*) FROM posts WHERE type='post' AND status='draft'"), 'Drafts', '?a=posts&status=draft'],
     ['grid', $cnt("SELECT COUNT(*) FROM posts WHERE type='page'"), 'Pages', '?a=pages'], ['briefcase', $cnt('SELECT COUNT(*) FROM categories'), 'Categories', '?a=cats'],
-    ['mail', $cnt('SELECT COUNT(*) FROM subscribers'), 'Subscribers', '?a=subs'], ['chart', $cnt("SELECT COALESCE(SUM(views),0) FROM posts"), 'Total views', '?a=posts']];
+    ['mail', $cnt('SELECT COUNT(*) FROM subscribers'), 'Subscribers', '?a=subs'], ['chart', $cnt("SELECT COALESCE(SUM(views),0) FROM posts"), 'Total views', '?a=posts'], ['cart', $cnt("SELECT COUNT(*) FROM clicks WHERE created_at >= datetime('now','-30 days')"), 'Affiliate clicks (30d)', '?a=posts']];
   $recent = db()->query("SELECT id,title,slug,published_at,status FROM posts WHERE type='post' ORDER BY updated_at DESC LIMIT 6")->fetchAll();
   $top = db()->query("SELECT id,title,slug,views_week,views FROM posts WHERE type='post' AND status='published' ORDER BY views_week DESC, views DESC LIMIT 5")->fetchAll();
   $me = db()->query('SELECT name, username, avatar FROM users WHERE id=' . $uid)->fetch();
   $todo = ['Add your logo (Settings → General)' => (bool)s('logo_image'), 'Set homepage SEO title & description (Settings → SEO)' => s('seo_home_title') !== defaults()['seo_home_title'],
     'Add Google Search Console code (Settings → SEO)' => (bool)s('seo_google_verify'), 'Upload category images (Categories)' => !$cnt("SELECT COUNT(*) FROM categories WHERE image='' AND show_home=1"),
     'Add your author photo & bio (Profile)' => (bool)$me['avatar'], 'Publish your first post' => (bool)$glance[0][1]];
-  $done = count(array_filter($todo)); $colors = ['violet', 'blue', 'amber', 'rose', 'green', 'indigo']; ?>
+  $done = count(array_filter($todo)); $colors = ['violet', 'blue', 'amber', 'rose', 'green', 'indigo', 'amber']; ?>
   <div class="page-head"><div><h1>Dashboard</h1><p>Welcome back, <?= e($me['name'] ?: $me['username']) ?> 👋 Here’s what’s happening with your site.</p></div><span class="date-chip"><?= tf_icon('calendar', 16) . date('M j, Y') ?></span></div>
   <div class="stats"><?php foreach ($glance as $i => [$ic, $n, $l, $u]): ?><a class="stat <?= $colors[$i] ?>" href="<?= $u ?>"><span class="st-ic"><?= tf_icon($ic, 22) ?></span><span><b><?= number_format($n) ?></b><small><?= $l ?></small></span></a><?php endforeach; ?></div>
   <div class="dash">
@@ -175,11 +218,11 @@ if ($a === 'dashboard') {
   <h1 class="wp-heading"><?= $type === 'page' ? 'Pages' : 'Posts' ?> <a class="page-title-action" href="?a=edit&type=<?= $type ?>">Add New <?= $type === 'page' ? 'Page' : 'Post' ?></a></h1>
   <div class="tablenav"><ul class="subsubsub"><li><a class="<?= $stf ? '' : 'current' ?>" href="?a=<?= $a ?>">All <span>(<?= array_sum($counts) ?>)</span></a> |</li><li><a class="<?= $stf === 'published' ? 'current' : '' ?>" href="?a=<?= $a ?>&status=published">Published <span>(<?= $counts['published'] ?? 0 ?>)</span></a> |</li><li><a class="<?= $stf === 'draft' ? 'current' : '' ?>" href="?a=<?= $a ?>&status=draft">Drafts <span>(<?= $counts['draft'] ?? 0 ?>)</span></a></li></ul>
     <form class="search-box"><input type="hidden" name="a" value="<?= $a ?>"><input type="search" name="q" value="<?= e($q) ?>"><button class="button">Search <?= $type === 'page' ? 'Pages' : 'Posts' ?></button></form></div>
-  <table class="wp-list-table"><thead><tr><th class="col-title">Title</th><th>Author</th><?php if ($type === 'post'): ?><th>Category</th><th>Tags</th><th class="num">Views</th><?php endif; ?><th>Date</th></tr></thead><tbody>
+  <table class="wp-list-table"><thead><tr><th class="col-title">Title</th><th>Author</th><?php if ($type === 'post'): ?><th>Category</th><th>Tags</th><th class="num">Views</th><th class="num">Clicks</th><?php endif; ?><th>Date</th></tr></thead><tbody>
   <?php foreach ($rows as $r): $sched = $r['status'] === 'published' && $r['published_at'] > now(); ?><tr>
     <td class="col-title"><strong><a class="row-title" href="?a=edit&id=<?= $r['id'] ?>"><?= e($r['title']) ?></a><?= $r['status'] === 'draft' ? ' <span class="post-state">— Draft</span>' : ($sched ? ' <span class="post-state">— Scheduled</span>' : '') ?><?= $r['in_hero'] ? ' <span class="post-state">— Hero</span>' : '' ?><?= $r['is_pick'] ? ' <span class="post-state">— Pick</span>' : '' ?></strong>
       <div class="row-actions"><a href="?a=edit&id=<?= $r['id'] ?>">Edit</a> | <a href="/<?= e($r['slug']) ?>" target="_blank"><?= $r['status'] === 'draft' ? 'Preview' : 'View' ?></a> | <form method="post" action="?a=delete" onsubmit="return confirm('Move to trash? This cannot be undone.')"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $r['id'] ?>"><input type="hidden" name="back" value="<?= $a ?>"><button class="link trash">Trash</button></form></div></td>
-    <td><?= e($r['author'] ?: '—') ?></td><?php if ($type === 'post'): ?><td><?= $r['cat'] ? e($r['cat']) : '—' ?></td><td><?= $r['tags'] ? e($r['tags']) : '—' ?></td><td class="num"><?= (int)$r['views'] ?></td><?php endif; ?>
+    <td><?= e($r['author'] ?: '—') ?></td><?php if ($type === 'post'): ?><td><?= $r['cat'] ? e($r['cat']) : '—' ?></td><td><?= $r['tags'] ? e($r['tags']) : '—' ?></td><td class="num"><?= (int)$r['views'] ?></td><td class="num"><?= (int)$r['clicks'] ?></td><?php endif; ?>
     <td class="date"><?= $r['status'] === 'draft' ? 'Last Modified' : ($sched ? 'Scheduled' : 'Published') ?><br><?= e(nice_date($r['status'] === 'draft' ? $r['updated_at'] : $r['published_at'], 'Y/m/d \a\t g:i a')) ?></td>
   </tr><?php endforeach; if (!$rows) echo '<tr><td colspan="6">No ' . ($type === 'page' ? 'pages' : 'posts') . ' found.</td></tr>'; ?></tbody></table>
 <?php } elseif ($a === 'edit') {
@@ -202,6 +245,10 @@ if ($a === 'dashboard') {
     <?php else: ?><label>Content</label><?php endif; ?>
     <div class="rte" data-name="content"><?= clean_html($p['content']) ?></div><input type="hidden" name="content">
 
+    <?php if ($isPost): ?><div class="seo-box"><h2 class="sub">Affiliate Box <small>— shown at the end of the post (or where you type {{cta}}). Wrap words in {{aff}}…{{/aff}} to link them.</small></h2>
+      <div class="g2"><?= field('aff_name', 'Brand / product name', 'text', $p['aff_name'] ?? '') ?><?= field('aff_url', 'Affiliate link', 'url', $p['aff_url'] ?? '', 'https://…') ?></div>
+      <?= field('aff_desc', 'Short description', 'textarea', $p['aff_desc'] ?? '') ?><div class="g2"><?= field('aff_btn', 'Button text', 'text', $p['aff_btn'] ?? '', 'default: Visit {brand}') ?>
+      <label class="check" style="margin-top:38px"><input type="checkbox" name="numbered" value="1" <?= !empty($p['numbered']) ? 'checked' : '' ?>> Numbered headings (1, 2, 3…)</label></div></div><?php endif; ?>
     <div class="seo-box"><h2 class="sub">SEO</h2>
       <div class="serp"><span class="serp-url"><?= e(parse_url(SITE_URL, PHP_URL_HOST)) ?> › <span id="serp-slug"><?= e($p['slug']) ?></span></span><span class="serp-title" id="serp-title"></span><span class="serp-desc" id="serp-desc"></span></div>
       <div class="g2"><?= field('focus_kw', 'Focus keyword', 'text', $p['focus_kw'], 'main search phrase') ?><?= $isPost ? field('tags', 'Tags', 'text', $p['tags'], 'comma separated') : '' ?></div>
@@ -273,9 +320,12 @@ if ($a === 'dashboard') {
     'Footer & Social' => [['footer_about', 'About text', 'textarea'], ['footer1_title', 'Column 1 title'], ['footer1_links', 'Column 1 links', 'lines', $L], ['footer2_title', 'Column 2 title'], ['footer2_links', 'Column 2 links', 'lines', '{categories} = auto list'],
       ['footer3_title', 'Column 3 title'], ['footer3_links', 'Column 3 links', 'lines', $L], ['footer4_title', 'Column 4 title'], ['footer4_links', 'Column 4 links', 'lines', $L], ['footer_copy', 'Copyright ({year} = current year)'],
       ['social_x', 'X / Twitter URL', 'url'], ['social_facebook', 'Facebook URL', 'url'], ['social_instagram', 'Instagram URL', 'url'], ['social_youtube', 'YouTube URL', 'url'], ['social_linkedin', 'LinkedIn URL', 'url']],
+    'AI & Tracking' => [['ai_api_key', 'Claude API key (from console.anthropic.com)', 'password', s('ai_api_key') ? 'Saved ✓ — leave blank to keep' : 'Required for AI Writer'], ['ai_model', 'AI model'], ['ai_words', 'Default article length (words)', 'number'],
+      ['ai_language', 'Article language', 'text', 'e.g. English, Hindi, Hinglish'], ['ai_tone', 'Writing tone'], ['cta_eyebrow', 'Affiliate box small heading'],
+      ['seo_ga_id', 'Google Analytics 4 Measurement ID (G-XXXXXXX)', 'text', 'affiliate clicks are sent as event "affiliate_click"'], ['track_clicks', 'Count affiliate clicks in this dashboard', 'check']],
     'SEO' => [['seo_home_title', 'Homepage SEO title'], ['seo_home_desc', 'Homepage meta description', 'textarea'], ['seo_title_sep', 'Title separator'], ['seo_og_image', 'Default social share image', 'image'],
       ['seo_twitter', 'Twitter @handle'], ['seo_org_name', 'Organization name (schema)'], ['seo_org_logo', 'Organization logo (schema)', 'image'],
-      ['seo_google_verify', 'Google Search Console verification code'], ['seo_bing_verify', 'Bing verification code'], ['seo_ga_id', 'Google Analytics ID (G-XXXX)'],
+      ['seo_google_verify', 'Google Search Console verification code'], ['seo_bing_verify', 'Bing verification code'],
       ['robots_extra', 'Extra robots.txt lines', 'code'], ['head_code', 'Code in <head> (AdSense, pixels…)', 'code'], ['footer_code', 'Code before </body>', 'code'], ['seo_noindex_site', 'Hide whole site from Google (staging only!)', 'check']],
   ];
   $tab = isset($tabs[$_GET['tab'] ?? '']) ? $_GET['tab'] : 'General'; ?>
@@ -284,10 +334,38 @@ if ($a === 'dashboard') {
   <form method="post" class="box settings"><?= csrf_field() ?><input type="hidden" name="tab" value="<?= e($tab) ?>">
     <?php foreach ($tabs[$tab] as $f): [$k, $label] = $f; $type = $f[2] ?? 'text'; $help = is_string($f[3] ?? null) ? $f[3] : '';
       if ($type === 'select') { echo '<label>' . e($label) . '<select name="s[' . $k . ']">'; foreach ($f[3] as $v => $l) echo '<option value="' . e($v) . '"' . ((string)$v === s($k) ? ' selected' : '') . '>' . e($l) . '</option>'; echo '</select></label>'; continue; }
-      echo field("s[$k]", e($label), $type, s($k), $help); endforeach; ?>
+      echo field("s[$k]", e($label), $type, $k === 'ai_api_key' ? '' : s($k), $help); endforeach; ?>
     <button class="button button-primary" style="margin-top:16px">Save <?= e($tab) ?></button>
   </form>
   <script>window.PRODUCTS=null;</script><script src="/admin/editor.js?v=2"></script>
+<?php } elseif ($a === 'users') {
+  $edit = isset($_GET['id']) ? db()->query('SELECT * FROM users WHERE id=' . (int)$_GET['id'])->fetch() : null;
+  $u = $edit ?: ['id' => 0, 'username' => '', 'name' => '', 'email' => '', 'role' => 'editor']; ?>
+  <h1 class="wp-heading">Users</h1>
+  <div class="cols"><div><table class="wp-list-table"><thead><tr><th class="col-title">Username</th><th>Name</th><th>Email</th><th>Role</th><th class="num">Posts</th></tr></thead><tbody>
+    <?php foreach (db()->query('SELECT u.*, (SELECT COUNT(*) FROM posts p WHERE p.author_id=u.id) n FROM users u ORDER BY u.id') as $r): ?><tr>
+      <td class="col-title"><strong><a class="row-title" href="?a=users&id=<?= $r['id'] ?>"><?= e($r['username']) ?></a><?= $r['id'] == $uid ? ' <span class="post-state">— You</span>' : '' ?></strong>
+        <div class="row-actions"><a href="?a=users&id=<?= $r['id'] ?>">Edit</a><?php if ($r['id'] != $uid): ?> | <form method="post" action="?a=user-del" onsubmit="return confirm('Delete this user? Their posts move to you.')"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $r['id'] ?>"><button class="link trash">Delete</button></form><?php endif; ?></div></td>
+      <td><?= e($r['name']) ?></td><td><?= e($r['email']) ?></td><td><span class="pill"><?= e(ucfirst($r['role'] ?: 'admin')) ?></span></td><td class="num"><?= $r['n'] ?></td></tr><?php endforeach; ?>
+  </tbody></table>
+  <p class="muted"><b>Administrator</b>: everything. <b>Editor</b>: posts, pages, categories, AI Writer and own profile — no settings, users, subscribers or redirects.</p></div>
+  <form method="post" action="?a=user-save" class="box"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $u['id'] ?>"><h3><?= $edit ? 'Edit user' : 'Add New User' ?></h3>
+    <?= field('username', 'Username', 'text', $u['username']) ?><?= field('name', 'Display name', 'text', $u['name']) ?><?= field('email', 'Email', 'email', $u['email']) ?>
+    <label>Role<select name="role"><option value="editor">Editor</option><option value="admin" <?= $u['role'] === 'admin' ? 'selected' : '' ?>>Administrator</option></select></label>
+    <?= field('password', $edit ? 'New password (leave blank to keep)' : 'Password (min 10)', 'password') ?>
+    <button class="button button-primary block" style="margin-top:16px"><?= $edit ? 'Update User' : 'Add New User' ?></button><?php if ($edit): ?><p><a href="?a=users">+ Add new instead</a></p><?php endif; ?></form></div>
+<?php } elseif ($a === 'ai') { $f = $_SESSION['ai_form'] ?? []; $hasKey = s('ai_api_key') !== ''; ?>
+  <div class="page-head"><div><h1>AI Writer</h1><p>Give a title and your affiliate link — a full, SEO-ready article is written and the affiliate link is added automatically.</p></div></div>
+  <?php if (!$hasKey): ?><div class="notice" style="border-left-color:#f59e0b">Add your Claude API key first: <?= $ROLE === 'admin' ? '<a href="?a=settings&tab=AI+%26+Tracking">Settings → AI &amp; Tracking</a>' : 'ask an administrator to add it in Settings → AI &amp; Tracking' ?>.</div><?php endif; ?>
+  <div class="cols"><form method="post" action="?a=ai-gen" class="card" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Writing… this takes about a minute';"><?= csrf_field() ?>
+    <?= field('title', 'Blog title *', 'text', $f['title'] ?? '', 'e.g. Lycamobile Review 2026: Plans, Coverage & Is It Worth It?') ?>
+    <div class="g2"><?= field('aff_name', 'Brand / product name', 'text', $f['aff_name'] ?? '', 'e.g. Lycamobile') ?><?= field('aff_url', 'Affiliate link', 'url', $f['aff_url'] ?? '', 'https://…') ?></div>
+    <div class="g2"><?= field('keyword', 'Focus keyword (SEO)', 'text', $f['keyword'] ?? '') ?><?= field('words', 'Length (words)', 'number', (string)($f['words'] ?? s('ai_words'))) ?></div>
+    <label>Category<select name="category_id"><option value="">— None —</option><?php foreach (categories() as $c): ?><option value="<?= $c['id'] ?>" <?= ($f['category_id'] ?? 0) == $c['id'] ? 'selected' : '' ?>><?= e($c['name']) ?></option><?php endforeach; ?></select></label>
+    <?= field('notes', 'Extra instructions / facts (optional)', 'textarea', $f['notes'] ?? '', 'prices, features, pros/cons, audience, country…') ?>
+    <button class="button button-primary button-large block" style="margin-top:18px" <?= $hasKey ? '' : 'disabled' ?>>✨ Write Article</button></form>
+    <div class="box"><h3>What you get</h3><ul class="plain"><li>✓ Full article with numbered H2 sections, intro & FAQ</li><li>✓ Affiliate link placed naturally in the text</li><li>✓ "Ready to explore? → Visit Brand" box at the end</li><li>✓ SEO title, meta description, tags & excerpt</li><li>✓ Saved as a <b>Draft</b> — you review before publishing</li></ul>
+      <p class="muted">Tip: add real facts (prices, plans, your experience) in “Extra instructions” — AI can make mistakes, so always check details before publishing.</p></div></div>
 <?php } elseif ($a === 'profile') { $u = db()->query('SELECT * FROM users WHERE id=' . $uid)->fetch(); ?>
   <h1 class="wp-heading">Profile</h1>
   <form method="post" class="box narrow-form" id="editor"><?= csrf_field() ?>
@@ -309,11 +387,12 @@ echo '</main></div><script>window.CSRF=' . json_encode(csrf()) . ';</script></bo
 
 /* ---------- view helpers ---------- */
 function admin_head(string $a, string $flash): void {
-  $nav = [['dashboard', 'home', 'Dashboard'], ['posts', 'doc', 'Posts'], ['pages', 'book', 'Pages'], ['cats', 'grid', 'Categories'], ['subs', 'users', 'Subscribers'], '-',
-    ['settings', 'gear', 'Settings'], ['redirects', 'arrow', 'Redirects'], ['profile', 'user', 'Profile']];
+  global $ROLE; $nav = [['dashboard', 'home', 'Dashboard'], ['posts', 'doc', 'Posts'], ['ai', 'bulb', 'AI Writer'], ['pages', 'book', 'Pages'], ['cats', 'grid', 'Categories'], ['subs', 'mail', 'Subscribers'], '-',
+    ['users', 'users', 'Users'], ['settings', 'gear', 'Settings'], ['redirects', 'arrow', 'Redirects'], ['profile', 'user', 'Profile']];
+  if ($ROLE !== 'admin') $nav = array_values(array_filter($nav, fn($n) => $n === '-' || !in_array($n[0], ['subs', 'users', 'settings', 'redirects'], true)));
   $cur = $a === 'edit' ? ((($_GET['type'] ?? '') === 'page' || (isset($_GET['id']) && db()->query('SELECT type FROM posts WHERE id=' . (int)$_GET['id'])->fetchColumn() === 'page')) ? 'pages' : 'posts') : ($a === 'quickdraft' ? 'dashboard' : $a);
   $me = db()->query('SELECT name, username, avatar FROM users WHERE id=' . (int)$_SESSION['uid'])->fetch(); $nm = $me['name'] ?: $me['username'];
-  $titles = ['dashboard' => 'Dashboard', 'posts' => 'Posts', 'pages' => 'Pages', 'cats' => 'Categories', 'subs' => 'Subscribers', 'settings' => 'Settings', 'redirects' => 'Redirects', 'profile' => 'Profile']; ?>
+  $titles = ['dashboard' => 'Dashboard', 'posts' => 'Posts', 'pages' => 'Pages', 'cats' => 'Categories', 'subs' => 'Subscribers', 'settings' => 'Settings', 'redirects' => 'Redirects', 'profile' => 'Profile', 'users' => 'Users', 'ai' => 'AI Writer']; ?>
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e($titles[$cur] ?? 'Admin') ?> · <?= e(s('site_name')) ?> CMS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"><link rel="stylesheet" href="/admin/admin.css?v=4"></head><body class="cms">
 <aside id="sidebar">
@@ -327,8 +406,8 @@ function admin_head(string $a, string $flash): void {
     <button class="tb-btn" onclick="document.body.classList.toggle('sb-open')" aria-label="Menu"><?= tf_icon('menu', 22) ?></button>
     <form class="tb-search" action="/admin/"><input type="hidden" name="a" value="posts"><?= tf_icon('search', 18) ?><input type="search" name="q" placeholder="Search posts, pages or categories…" aria-label="Search"></form>
     <a class="tb-btn bell" href="?a=subs" aria-label="Subscribers"><?= tf_icon('mail', 20) ?><?php if ((int)db()->query("SELECT COUNT(*) FROM subscribers WHERE created_at >= datetime('now','-7 days')")->fetchColumn()): ?><i></i><?php endif; ?></a>
-    <details class="tb-user"><summary><?= $me['avatar'] ? '<img src="' . e($me['avatar']) . '" alt="">' : '<span class="av">' . e(strtoupper(mb_substr($nm, 0, 1))) . '</span>' ?><span class="who"><b><?= e($nm) ?></b><small>Administrator</small></span><?= tf_icon('chev-d', 16) ?></summary>
-      <div class="menu"><a href="?a=profile">Profile</a><a href="?a=settings">Settings</a><a href="/" target="_blank">Visit Site</a><a href="?a=logout" class="danger">Log Out</a></div></details>
+    <details class="tb-user"><summary><?= $me['avatar'] ? '<img src="' . e($me['avatar']) . '" alt="">' : '<span class="av">' . e(strtoupper(mb_substr($nm, 0, 1))) . '</span>' ?><span class="who"><b><?= e($nm) ?></b><small><?= $ROLE === 'admin' ? 'Administrator' : 'Editor' ?></small></span><?= tf_icon('chev-d', 16) ?></summary>
+      <div class="menu"><a href="?a=profile">Profile</a><?php if ($ROLE === 'admin'): ?><a href="?a=settings">Settings</a><a href="?a=users">Users</a><?php endif; ?><a href="/" target="_blank">Visit Site</a><a href="?a=logout" class="danger">Log Out</a></div></details>
   </header>
   <main id="content"><?php if ($flash): ?><div class="notice"><?= $flash ?></div><?php endif;
 }
@@ -349,4 +428,31 @@ function seed(): void {
     'Privacy Policy' => ['privacy-policy', "<p>We respect your privacy. This site may use cookies and third-party services (analytics, advertising and affiliate partners) that collect anonymous usage data. Newsletter emails are used only to send our newsletter and you can unsubscribe any time. We do not sell personal information. Contact: $mail</p>"],
     'Terms of Use' => ['terms', "<p>All content on $name is for general information only. While we strive for accuracy, we make no guarantees. Prices and availability of products change; check the retailer before buying.</p>"]];
   foreach ($pages as $title => [$slug, $html]) $pdo->prepare("INSERT OR IGNORE INTO posts (type,title,slug,content,status,published_at,updated_at) VALUES ('page',?,?,?,'published',?,?)")->execute([$title, $slug, $html, $t, $t]);
+}
+
+/* ---------- AI article writer (Anthropic Claude API) ---------- */
+function ai_write(array $in): array {
+  $key = s('ai_api_key'); if ($key === '') return [null, 'No API key set (Settings → AI & Tracking).'];
+  if (!function_exists('curl_init')) return [null, 'PHP curl extension is missing on the server.'];
+  $brand = $in['aff_name'] ?: 'the product/service';
+  $aff = $in['aff_url'] ? "Where it helps the reader, link the brand name or a natural call-to-action phrase 2–3 times in the body by wrapping the words like {{aff}}Visit {$brand}{{/aff}} — do NOT write any real URL for it. Do NOT add a separate final call-to-action box; the site adds one automatically." : 'There is no affiliate link; do not add {{aff}} markers.';
+  $prompt = "Write a complete, original, helpful blog article.\n\nTitle: {$in['title']}\nBrand/product: {$brand}\nFocus keyword: " . ($in['keyword'] ?: '(choose the best one)') .
+    "\nLength: about {$in['words']} words\nLanguage: " . s('ai_language') . "\nTone: " . s('ai_tone') . "\nExtra notes from the editor (treat as facts to use): " . ($in['notes'] ?: 'none') .
+    "\n\nRules:\n- HTML only for the body: <p>, <h2>, <h3>, <ul>/<ol>/<li>, <strong>, <em>, <table> with <thead>/<tbody>, <blockquote>. No <h1>, no inline styles, no scripts, no images.\n- Start with a 2–3 paragraph introduction (no heading), then 8–12 <h2> sections (do not number them yourself — the site numbers them), include a pros & cons list, a comparison or quick-facts table where useful, an FAQ section with 4–6 questions as <h3>, and a short conclusion.\n- Use the focus keyword naturally in the first paragraph and in 2–3 headings.\n- Do not invent specific prices, statistics or quotes unless given in the notes; describe them generally instead.\n- {$aff}\n\nReturn ONLY valid JSON (no markdown fences) with these keys: " .
+    '{"content_html": "...", "excerpt": "1–2 sentence summary", "meta_title": "max 60 chars", "meta_description": "140–160 chars", "focus_keyword": "...", "tags": ["3-6 short tags"], "cta_description": "one sentence describing the brand for the affiliate box", "slug": "short-url-slug"}';
+  $body = json_encode(['model' => s('ai_model') ?: 'claude-sonnet-5-5', 'max_tokens' => 16000, 'system' => 'You are an expert SEO content writer for an affiliate review blog. You write accurate, people-first content and always follow the output format exactly.',
+    'messages' => [['role' => 'user', 'content' => $prompt]]]);
+  $ch = curl_init('https://api.anthropic.com/v1/messages');
+  curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 280, CURLOPT_CONNECTTIMEOUT => 15,
+    CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01']]);
+  $res = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
+  if ($res === false) return [null, 'Could not reach the AI service: ' . $cerr];
+  $j = json_decode($res, true);
+  if ($code !== 200) return [null, ($j['error']['message'] ?? 'HTTP ' . $code)];
+  $text = ''; foreach ($j['content'] ?? [] as $b) if (($b['type'] ?? '') === 'text') $text .= $b['text'];
+  $text = trim(preg_replace('/^```(?:json)?|```$/m', '', trim($text)));
+  $a = strpos($text, '{'); $b = strrpos($text, '}');
+  $out = ($a !== false && $b !== false) ? json_decode(substr($text, $a, $b - $a + 1), true) : null;
+  if (!is_array($out) || empty($out['content_html'])) return [null, ($j['stop_reason'] ?? '') === 'max_tokens' ? 'Article was too long — try fewer words.' : 'AI returned an unexpected format. Please try again.'];
+  return [$out, null];
 }

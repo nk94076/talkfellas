@@ -26,3 +26,11 @@
     auto();
   });
 })();
+// Affiliate click tracking → GA4 event + internal counter (skipped for logged-in staff)
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[rel~="sponsored"], a.aff');
+  if (!a || !window.TF || TF.staff) return;
+  var label = (a.dataset.aff || a.textContent || '').trim().slice(0, 120);
+  if (TF.ga && window.gtag) gtag('event', 'affiliate_click', { link_url: a.href, link_text: label, post_title: TF.title, transport_type: 'beacon' });
+  if (TF.track && navigator.sendBeacon) navigator.sendBeacon('/track', new Blob([JSON.stringify({ post: TF.post, url: a.href, label: label })], { type: 'application/json' }));
+}, true);

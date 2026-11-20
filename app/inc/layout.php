@@ -39,8 +39,9 @@ function head(array $seo = []): void {
 <script>try{var t=localStorage.getItem('tf-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 <?php foreach ($schema as $sc): ?><script type="application/ld+json"><?= json_encode(array_filter($sc, fn($v) => $v !== null && $v !== []), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?></script>
 <?php endforeach; ?>
-<?php if (s('seo_ga_id')): $ga = e(s('seo_ga_id')); ?><script async src="https://www.googletagmanager.com/gtag/js?id=<?= $ga ?>"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','<?= $ga ?>');</script><?php endif; ?>
-<?= s('head_code') ?>
+<script>window.TF=<?= json_encode(['ga' => s('seo_ga_id') && !is_staff() ? s('seo_ga_id') : '', 'staff' => is_staff(), 'track' => s('track_clicks') === '1', 'post' => (int)($seo['post_id'] ?? 0), 'title' => $seo['title'] ?? ''], JSON_HEX_TAG | JSON_UNESCAPED_UNICODE) ?>;</script>
+<?php if (s('seo_ga_id') && !is_staff()): $ga = e(s('seo_ga_id')); ?><script async src="https://www.googletagmanager.com/gtag/js?id=<?= $ga ?>"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','<?= $ga ?>');</script><?php endif; ?>
+<?= is_staff() ? '' : s('head_code') ?>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -88,6 +89,6 @@ function foot(): void { ?>
   <div class="container foot-copy"><?= e(str_replace('{year}', date('Y'), s('footer_copy'))) ?></div>
 </footer>
 <script src="/assets/main.js?v=2" defer></script>
-<?= s('footer_code') ?>
+<?= is_staff() ? '' : s('footer_code') ?>
 </body></html>
 <?php }
