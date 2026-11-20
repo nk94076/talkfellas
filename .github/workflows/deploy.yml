@@ -16,6 +16,8 @@ jobs:
           SSH_KEY: ${{ secrets.SSH_KEY }}
         run: |
           mkdir -p ~/.ssh && echo "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          [ -n "$SSH_KEY" ] || { echo "SSH_KEY secret is EMPTY or missing"; exit 1; }
+          echo "Key fingerprint:"; ssh-keygen -lf ~/.ssh/id_ed25519 || echo "SSH_KEY is not a valid private key"
           ssh-keyscan -H 187.127.149.83 >> ~/.ssh/known_hosts
           rsync -az --delete -e ssh dist/ root@187.127.149.83:/home/talkfellas/htdocs/talkfellas.com/
           ssh root@187.127.149.83 'chown -R talkfellas:talkfellas /home/talkfellas/htdocs/talkfellas.com'
