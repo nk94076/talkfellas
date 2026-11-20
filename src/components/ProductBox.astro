@@ -1,0 +1,8 @@
+---
+const { name, rating = 4.5, link, pros = [], cons = [], cta = 'Check Price' } = Astro.props;
+---
+<div class="product">
+  <h3>{name}</h3><div class="rating">{'★'.repeat(Math.round(rating))} <small>{rating}/5</small></div>
+  <div class="pc"><div><b>Pros</b><ul>{pros.map((p:string)=><li>{p}</li>)}</ul></div><div><b>Cons</b><ul>{cons.map((c:string)=><li>{c}</li>)}</ul></div></div>
+  <a class="btn" href={link} rel="nofollow sponsored noopener" target="_blank">{cta} →</a>
+</div>

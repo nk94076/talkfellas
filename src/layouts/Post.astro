@@ -1,0 +1,15 @@
+---
+import Base from './Base.astro';
+const { title, description, date, category } = Astro.props;
+const d = new Date(date).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+const ld = { '@context':'https://schema.org','@type':'BlogPosting', headline:title, description, datePublished:new Date(date).toISOString(), author:{'@type':'Organization',name:'TalkFellas'} };
+---
+<Base title={title} description={description}>
+<article class="wrap">
+  <span class="tag">{category}</span>
+  <h1>{title}</h1><div class="meta">Updated {d}</div>
+  <div class="disclosure">Disclosure: This post contains affiliate links. If you buy through them, we may earn a commission at no extra cost to you. <a href="/affiliate-disclosure/">Learn more</a>.</div>
+  <slot />
+</article>
+<script type="application/ld+json" set:html={JSON.stringify(ld)} />
+</Base>

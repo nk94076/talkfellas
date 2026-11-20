@@ -1,0 +1,12 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+import { SITE } from '../site';
+const posts = (await getCollection('blog', p => !p.data.draft)).sort((a,b)=>b.data.date.valueOf()-a.data.date.valueOf());
+---
+<Base>
+<section class="wrap wide hero"><h1>{SITE.tagline}</h1><p>We research, test and compare products so you can buy with confidence.</p></section>
+<section class="wrap wide grid">
+{posts.map(p => <a class="card" href={`/blog/${p.id}/`}><span class="tag">{p.data.category}</span><h2>{p.data.title}</h2><p>{p.data.description}</p></a>)}
+</section>
+</Base>
