@@ -1,4 +1,3 @@
-node_modules/
-dist/
-.astro/
-*.zip
+tf-data/
+app/uploads/*
+!app/uploads/.gitkeep

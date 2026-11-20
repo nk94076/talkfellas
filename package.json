@@ -1,7 +1,0 @@
-{
-  "name": "talkfellas",
-  "type": "module",
-  "version": "1.0.0",
-  "scripts": { "dev": "astro dev", "build": "astro build", "preview": "astro preview" },
-  "dependencies": { "astro": "7.4.13", "@astrojs/sitemap": "3.7.6", "@astrojs/rss": "4.0.19" }
-}
