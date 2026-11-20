@@ -1,1 +1,4 @@
+tf-data/
+app/uploads/*
+!app/uploads/.gitkeep
 *.zip
