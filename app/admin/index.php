@@ -2,7 +2,7 @@
 require dirname(__DIR__) . '/inc/helpers.php';
 start_session();
 header('X-Frame-Options: DENY'); header('Cache-Control: no-store'); header('X-Robots-Tag: noindex');
-$a = $_GET['a'] ?? 'posts';
+$a = $_GET['a'] ?? 'dashboard';
 $post = $_SERVER['REQUEST_METHOD'] === 'POST';
 $flash = $_SESSION['flash'] ?? ''; unset($_SESSION['flash']);
 function go(string $q, string $msg = ''): void { if ($msg) $_SESSION['flash'] = $msg; header('Location: /admin/' . ($q ? "?$q" : '')); exit; }
@@ -13,7 +13,7 @@ function field(string $name, string $label, string $type = 'text', string $val =
     'lines' => "<label>$label$h<textarea name=\"$n\" rows=\"5\" class=\"mono\">$v</textarea></label>",
     'code' => "<label>$label$h<textarea name=\"$n\" rows=\"4\" class=\"mono\">$v</textarea></label>",
     'check' => "<label class=\"check\"><input type=\"hidden\" name=\"$n\" value=\"0\"><input type=\"checkbox\" name=\"$n\" value=\"1\" " . ($val === '1' ? 'checked' : '') . "> $label</label>",
-    'image' => "<label>$label$h</label><div class=\"imgf\"><input name=\"$n\" value=\"$v\" placeholder=\"Image URL\"><button type=\"button\" class=\"btn ghost sm\" onclick=\"pick(this)\">Upload</button><img class=\"prev\" src=\"$v\" alt=\"\"></div>",
+    'image' => "<label>$label$h</label><div class=\"imgf\"><input name=\"$n\" value=\"$v\" placeholder=\"Image URL\"><button type=\"button\" class=\"button\" onclick=\"pick(this)\">Upload</button><img class=\"prev\" src=\"$v\" alt=\"\"></div>",
     'color' => "<label>$label<input type=\"color\" name=\"$n\" value=\"$v\" style=\"height:42px;padding:4px\"></label>",
     default => "<label>$label$h<input type=\"$type\" name=\"$n\" value=\"$v\"></label>",
   };
@@ -127,19 +127,48 @@ if ($a === 'export') {
 }
 if ($a === 'sub-del' && $post) { check_csrf(); db()->prepare('DELETE FROM subscribers WHERE email=?')->execute([$_POST['email'] ?? '']); go('a=subs', 'Removed.'); }
 
+if ($a === 'quickdraft' && $post) {
+  check_csrf(); $t = trim($_POST['title'] ?? ''); if ($t === '') go('', 'Add a title for your draft.');
+  $slug = slugify($t) . '-' . bin2hex(random_bytes(2));
+  db()->prepare("INSERT INTO posts (type,title,slug,content,status,author_id,published_at,updated_at) VALUES ('post',?,?,?,'draft',?,?,?)")->execute([$t, $slug, '<p>' . nl2br(e(trim($_POST['content'] ?? ''))) . '</p>', $uid, now(), now()]);
+  go('', 'Draft saved. <a href="?a=edit&id=' . db()->lastInsertId() . '">Edit draft →</a>');
+}
+
 /* ================= Views ================= */
 admin_head($a, $flash);
-if ($a === 'posts' || $a === 'pages') {
-  $type = $a === 'pages' ? 'page' : 'post'; $q = trim($_GET['q'] ?? '');
-  $st = db()->prepare("SELECT p.*, c.name cat FROM posts p LEFT JOIN categories c ON c.id=p.category_id WHERE p.type=? AND p.title LIKE ? ORDER BY p.published_at DESC"); $st->execute([$type, "%$q%"]); ?>
-  <div class="bar"><h1><?= $type === 'page' ? 'Pages' : 'Posts' ?></h1><div class="bar-r"><form class="inline"><input type="hidden" name="a" value="<?= $a ?>"><input name="q" value="<?= e($q) ?>" placeholder="Search…"></form><a class="btn" href="?a=edit&type=<?= $type ?>">+ New <?= $type === 'page' ? 'Page' : 'Post' ?></a></div></div>
-  <table class="list"><tr><th>Title</th><?php if ($type === 'post'): ?><th>Category</th><th>Views</th><?php endif; ?><th>Status</th><th>Date</th><th></th></tr>
-  <?php foreach ($st as $r): $sched = $r['status'] === 'published' && $r['published_at'] > now(); ?><tr>
-    <td><a href="?a=edit&id=<?= $r['id'] ?>"><b><?= e($r['title']) ?></b></a> <?= $r['in_hero'] ? '<span class="pill">Hero</span>' : '' ?><?= $r['is_pick'] ? '<span class="pill">Pick</span>' : '' ?><br><small>/<?= e($r['slug']) ?></small></td>
-    <?php if ($type === 'post'): ?><td><?= e($r['cat'] ?? '—') ?></td><td><?= (int)$r['views'] ?></td><?php endif; ?>
-    <td><span class="pill <?= $sched ? 'sched' : $r['status'] ?>"><?= $sched ? 'scheduled' : $r['status'] ?></span></td><td><small><?= e(nice_date($r['published_at'])) ?></small></td>
-    <td class="act"><a href="/<?= e($r['slug']) ?>" target="_blank">View</a><form method="post" action="?a=delete" onsubmit="return confirm('Delete permanently?')"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $r['id'] ?>"><input type="hidden" name="back" value="<?= $a ?>"><button class="link danger">Delete</button></form></td>
-  </tr><?php endforeach; ?></table>
+if ($a === 'dashboard') {
+  $cnt = fn($sql) => (int)db()->query($sql)->fetchColumn();
+  $glance = [['doc', $cnt("SELECT COUNT(*) FROM posts WHERE type='post' AND status='published'"), 'Published posts', '?a=posts&status=published'],
+    ['book', $cnt("SELECT COUNT(*) FROM posts WHERE type='post' AND status='draft'"), 'Drafts', '?a=posts&status=draft'],
+    ['grid', $cnt("SELECT COUNT(*) FROM posts WHERE type='page'"), 'Pages', '?a=pages'], ['briefcase', $cnt('SELECT COUNT(*) FROM categories'), 'Categories', '?a=cats'],
+    ['mail', $cnt('SELECT COUNT(*) FROM subscribers'), 'Subscribers', '?a=subs'], ['chart', $cnt("SELECT COALESCE(SUM(views),0) FROM posts"), 'Total views', '?a=posts']];
+  $recent = db()->query("SELECT id,title,slug,published_at,status FROM posts WHERE type='post' ORDER BY updated_at DESC LIMIT 6")->fetchAll();
+  $top = db()->query("SELECT id,title,slug,views_week,views FROM posts WHERE type='post' AND status='published' ORDER BY views_week DESC, views DESC LIMIT 5")->fetchAll();
+  $todo = array_filter(['Add your logo (Settings → General)' => !s('logo_image'), 'Set homepage SEO title & description (Settings → SEO)' => s('seo_home_title') === defaults()['seo_home_title'],
+    'Add Google Search Console code (Settings → SEO)' => !s('seo_google_verify'), 'Upload category images (Categories)' => (bool)$cnt("SELECT COUNT(*) FROM categories WHERE image='' AND show_home=1"),
+    'Add your author photo & bio (Profile)' => !db()->query('SELECT avatar FROM users WHERE id=' . $uid)->fetchColumn(), 'Publish your first post' => !$glance[0][1]]); ?>
+  <h1 class="wp-heading">Dashboard</h1>
+  <div class="dash">
+    <div class="postbox"><h2 class="hndle">At a Glance</h2><div class="inside glance"><?php foreach ($glance as [$ic, $n, $l, $u]): ?><a href="<?= $u ?>"><?= tf_icon($ic, 18) ?><b><?= number_format($n) ?></b> <?= $l ?></a><?php endforeach; ?></div></div>
+    <div class="postbox"><h2 class="hndle">Quick Draft</h2><form class="inside" method="post" action="?a=quickdraft"><?= csrf_field() ?><label>Title<input name="title"></label><label>Content<textarea name="content" rows="4" placeholder="What's on your mind?"></textarea></label><button class="button button-primary">Save Draft</button></form></div>
+    <div class="postbox"><h2 class="hndle">Activity — Recently Edited</h2><div class="inside"><ul class="activity"><?php foreach ($recent as $r): ?><li><span><?= e(nice_date($r['published_at'], 'M j, g:i a')) ?></span><a href="?a=edit&id=<?= $r['id'] ?>"><?= e($r['title']) ?></a><?= $r['status'] === 'draft' ? ' <em>— Draft</em>' : '' ?></li><?php endforeach; if (!$recent) echo '<li>No posts yet.</li>'; ?></ul></div></div>
+    <div class="postbox"><h2 class="hndle">Popular This Week</h2><div class="inside"><ul class="activity"><?php foreach ($top as $r): ?><li><span><?= (int)$r['views_week'] ?> views</span><a href="/<?= e($r['slug']) ?>" target="_blank"><?= e($r['title']) ?></a></li><?php endforeach; if (!$top) echo '<li>No views yet.</li>'; ?></ul></div></div>
+    <?php if ($todo): ?><div class="postbox"><h2 class="hndle">Site Setup Checklist</h2><div class="inside"><ul class="todo"><?php foreach ($todo as $t => $_): ?><li><?= e($t) ?></li><?php endforeach; ?></ul></div></div><?php endif; ?>
+  </div>
+<?php } elseif ($a === 'posts' || $a === 'pages') {
+  $type = $a === 'pages' ? 'page' : 'post'; $q = trim($_GET['q'] ?? ''); $stf = in_array($_GET['status'] ?? '', ['published', 'draft']) ? $_GET['status'] : '';
+  $counts = db()->prepare("SELECT status, COUNT(*) FROM posts WHERE type=? GROUP BY status"); $counts->execute([$type]); $counts = $counts->fetchAll(PDO::FETCH_KEY_PAIR);
+  $st = db()->prepare("SELECT p.*, c.name cat, u.name author FROM posts p LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN users u ON u.id=p.author_id WHERE p.type=? AND p.title LIKE ?" . ($stf ? " AND p.status='$stf'" : '') . " ORDER BY p.published_at DESC"); $st->execute([$type, "%$q%"]); $rows = $st->fetchAll(); ?>
+  <h1 class="wp-heading"><?= $type === 'page' ? 'Pages' : 'Posts' ?> <a class="page-title-action" href="?a=edit&type=<?= $type ?>">Add New <?= $type === 'page' ? 'Page' : 'Post' ?></a></h1>
+  <div class="tablenav"><ul class="subsubsub"><li><a class="<?= $stf ? '' : 'current' ?>" href="?a=<?= $a ?>">All <span>(<?= array_sum($counts) ?>)</span></a> |</li><li><a class="<?= $stf === 'published' ? 'current' : '' ?>" href="?a=<?= $a ?>&status=published">Published <span>(<?= $counts['published'] ?? 0 ?>)</span></a> |</li><li><a class="<?= $stf === 'draft' ? 'current' : '' ?>" href="?a=<?= $a ?>&status=draft">Drafts <span>(<?= $counts['draft'] ?? 0 ?>)</span></a></li></ul>
+    <form class="search-box"><input type="hidden" name="a" value="<?= $a ?>"><input type="search" name="q" value="<?= e($q) ?>"><button class="button">Search <?= $type === 'page' ? 'Pages' : 'Posts' ?></button></form></div>
+  <table class="wp-list-table"><thead><tr><th class="col-title">Title</th><th>Author</th><?php if ($type === 'post'): ?><th>Category</th><th>Tags</th><th class="num">Views</th><?php endif; ?><th>Date</th></tr></thead><tbody>
+  <?php foreach ($rows as $r): $sched = $r['status'] === 'published' && $r['published_at'] > now(); ?><tr>
+    <td class="col-title"><strong><a class="row-title" href="?a=edit&id=<?= $r['id'] ?>"><?= e($r['title']) ?></a><?= $r['status'] === 'draft' ? ' <span class="post-state">— Draft</span>' : ($sched ? ' <span class="post-state">— Scheduled</span>' : '') ?><?= $r['in_hero'] ? ' <span class="post-state">— Hero</span>' : '' ?><?= $r['is_pick'] ? ' <span class="post-state">— Pick</span>' : '' ?></strong>
+      <div class="row-actions"><a href="?a=edit&id=<?= $r['id'] ?>">Edit</a> | <a href="/<?= e($r['slug']) ?>" target="_blank"><?= $r['status'] === 'draft' ? 'Preview' : 'View' ?></a> | <form method="post" action="?a=delete" onsubmit="return confirm('Move to trash? This cannot be undone.')"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $r['id'] ?>"><input type="hidden" name="back" value="<?= $a ?>"><button class="link trash">Trash</button></form></div></td>
+    <td><?= e($r['author'] ?: '—') ?></td><?php if ($type === 'post'): ?><td><?= $r['cat'] ? e($r['cat']) : '—' ?></td><td><?= $r['tags'] ? e($r['tags']) : '—' ?></td><td class="num"><?= (int)$r['views'] ?></td><?php endif; ?>
+    <td class="date"><?= $r['status'] === 'draft' ? 'Last Modified' : ($sched ? 'Scheduled' : 'Published') ?><br><?= e(nice_date($r['status'] === 'draft' ? $r['updated_at'] : $r['published_at'], 'Y/m/d \a\t g:i a')) ?></td>
+  </tr><?php endforeach; if (!$rows) echo '<tr><td colspan="6">No ' . ($type === 'page' ? 'pages' : 'posts') . ' found.</td></tr>'; ?></tbody></table>
 <?php } elseif ($a === 'edit') {
   $id = (int)($_GET['id'] ?? 0);
   $p = ['id' => 0, 'type' => ($_GET['type'] ?? '') === 'page' ? 'page' : 'post', 'title' => '', 'slug' => '', 'excerpt' => '', 'intro' => '', 'content' => '', 'image' => '', 'image_alt' => '', 'category_id' => null, 'status' => 'draft',
@@ -147,15 +176,15 @@ if ($a === 'posts' || $a === 'pages') {
   if ($id) { $st = db()->prepare('SELECT * FROM posts WHERE id=?'); $st->execute([$id]); $p = $st->fetch() ?: go('', 'Not found.'); $st = db()->prepare('SELECT * FROM products WHERE post_id=? ORDER BY rank'); $st->execute([$id]); $prods = $st->fetchAll(); }
   $isPost = $p['type'] === 'post'; ?>
   <form method="post" action="?a=save" id="editor"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $p['id'] ?>"><input type="hidden" name="type" value="<?= e($p['type']) ?>">
-  <div class="bar"><h1><?= $id ? 'Edit' : 'New' ?> <?= $isPost ? 'Post' : 'Page' ?></h1><div><?php if ($id && $p['status'] === 'published'): ?><a class="btn ghost" href="/<?= e($p['slug']) ?>" target="_blank">View</a> <?php endif; ?><button class="btn">Save</button></div></div>
+  <h1 class="wp-heading"><?= $id ? 'Edit' : 'Add New' ?> <?= $isPost ? 'Post' : 'Page' ?><?php if ($id): ?> <a class="page-title-action" href="?a=edit&type=<?= e($p['type']) ?>">Add New</a><?php endif; ?></h1>
   <div class="cols"><div class="main-col">
-    <label>Title<input name="title" id="f-title" required value="<?= e($p['title']) ?>" placeholder="10 Best Wireless Earbuds in 2026"></label>
+    <input name="title" id="f-title" class="title-input" required value="<?= e($p['title']) ?>" placeholder="Add title" aria-label="Title">
     <label>URL <small><?= e(SITE_URL) ?>/<b id="slug-prev"><?= e($p['slug']) ?></b> — blank = from title. Changing a live URL auto-creates a 301 redirect.</small><input name="slug" id="f-slug" value="<?= e($p['slug']) ?>"></label>
     <?php if ($isPost): ?>
       <label>Excerpt / short description <small>(cards, under title, and default Google description)</small><textarea name="excerpt" id="f-excerpt" rows="2"><?= e($p['excerpt']) ?></textarea></label>
       <label>Intro <small>(appears before the product list)</small></label><div class="rte" data-name="intro"><?= clean_html($p['intro']) ?></div><input type="hidden" name="intro">
       <h2 class="sub">Ranked Products <small>— optional, for Top-10 / review posts. Drag ↕ to reorder.</small></h2>
-      <div id="products"></div><button type="button" class="btn ghost" onclick="addProduct()">+ Add Product</button>
+      <div id="products"></div><button type="button" class="button" onclick="addProduct()">+ Add Product</button>
       <label style="margin-top:24px">Article content <small>(use H2/H3 headings — a table of contents is built automatically)</small></label>
     <?php else: ?><label>Content</label><?php endif; ?>
     <div class="rte" data-name="content"><?= clean_html($p['content']) ?></div><input type="hidden" name="content">
@@ -174,12 +203,12 @@ if ($a === 'posts' || $a === 'pages') {
     </div>
   </div>
   <div class="side-col">
-    <div class="box"><h3>Publish</h3>
+    <div class="box"><h3>Publish</h3><?php if ($id && $p['status'] === 'published'): ?><a class="button" href="/<?= e($p['slug']) ?>" target="_blank" style="margin-bottom:8px">View Post</a><?php endif; ?>
       <label>Status<select name="status"><option value="draft">Draft</option><option value="published" <?= $p['status'] === 'published' ? 'selected' : '' ?>>Published</option></select></label>
       <label>Publish date <small>(future = scheduled)</small><input type="datetime-local" name="published_at" value="<?= e(date('Y-m-d\TH:i', strtotime($p['published_at']))) ?>"></label>
       <?php if ($isPost): ?><label class="check"><input type="checkbox" name="in_hero" value="1" <?= $p['in_hero'] ? 'checked' : '' ?>> Show in homepage hero slider</label>
       <label class="check"><input type="checkbox" name="is_pick" value="1" <?= $p['is_pick'] ? 'checked' : '' ?>> Editor's Pick</label><?php endif; ?>
-      <button class="btn block" style="margin-top:12px">Save</button></div>
+      <div class="major-publishing"><?php if ($id): ?><span class="muted">Last saved <?= e(nice_date($p['updated_at'] ?? now(), 'M j, g:i a')) ?></span><?php endif; ?><button class="button button-primary button-large"><?= $p['status'] === 'published' ? 'Update' : 'Save' ?></button></div></div>
     <?php if ($isPost): ?><div class="box"><h3>Category</h3><select name="category_id"><option value="">— None —</option><?php foreach (categories() as $c): ?><option value="<?= $c['id'] ?>" <?= $c['id'] == $p['category_id'] ? 'selected' : '' ?>><?= e($c['name']) ?></option><?php endforeach; ?></select><small><a href="?a=cats">Manage categories</a></small></div><?php endif; ?>
     <div class="box"><h3>Featured Image</h3><?= field('image', '', 'image', $p['image']) ?><?= field('image_alt', 'Alt text (SEO)', 'text', $p['image_alt']) ?></div>
   </div></div></form>
@@ -188,7 +217,7 @@ if ($a === 'posts' || $a === 'pages') {
     <div class="g2"><label>Product name<input data-k="name"></label><label>Affiliate link<input data-k="link" placeholder="https://amzn.to/..."></label>
     <label>Badge<input data-k="badge" placeholder="Best Overall"></label><label>Score<input data-k="score" placeholder="9.8"></label>
     <label>Store<input data-k="store" placeholder="Amazon"></label><label>Button text<input data-k="button" placeholder="Check Price"></label></div>
-    <label>Image</label><div class="imgf"><input data-k="image" placeholder="Image URL"><button type="button" class="btn ghost sm" onclick="pick(this)">Upload</button><img class="prev" alt=""></div>
+    <label>Image</label><div class="imgf"><input data-k="image" placeholder="Image URL"><button type="button" class="button" onclick="pick(this)">Upload</button><img class="prev" alt=""></div>
     <label>Key features <small>(one per line)</small><textarea data-k="features" rows="3"></textarea></label>
   </div></template>
   <script>window.PRODUCTS=<?= json_encode($prods, JSON_HEX_TAG | JSON_HEX_AMP) ?>;window.SITE=<?= json_encode(s('site_name')) ?>;window.SEP=<?= json_encode(s('seo_title_sep')) ?>;</script>
@@ -197,8 +226,8 @@ if ($a === 'posts' || $a === 'pages') {
 <?php } elseif ($a === 'cats') {
   $edit = null; if (isset($_GET['id'])) foreach (categories() as $c) if ($c['id'] == $_GET['id']) $edit = $c;
   $c = $edit ?? ['id' => 0, 'name' => '', 'slug' => '', 'description' => '', 'icon' => 'grid', 'image' => '', 'show_home' => 1, 'sort' => count(categories()), 'meta_title' => '', 'meta_desc' => '']; ?>
-  <div class="bar"><h1>Categories</h1></div>
-  <div class="cols"><div><table class="list"><tr><th></th><th>Name</th><th>Posts</th><th>Homepage</th><th>Order</th><th></th></tr>
+  <h1 class="wp-heading">Categories</h1>
+  <div class="cols"><div><table class="wp-list-table"><tr><th></th><th>Name</th><th>Posts</th><th>Homepage</th><th>Order</th><th></th></tr>
     <?php foreach (categories() as $r): ?><tr><td class="ic-cell"><?= tf_icon($r['icon'], 20) ?></td><td><a href="?a=cats&id=<?= $r['id'] ?>"><b><?= e($r['name']) ?></b></a><br><small>/category/<?= e($r['slug']) ?></small></td><td><?= $r['n'] ?></td><td><?= $r['show_home'] ? '✓' : '—' ?></td><td><?= $r['sort'] ?></td>
       <td class="act"><a href="?a=cats&id=<?= $r['id'] ?>">Edit</a><form method="post" action="?a=cat-del" onsubmit="return confirm('Delete category? Posts stay, just uncategorised.')"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $r['id'] ?>"><button class="link danger">Delete</button></form></td></tr><?php endforeach; ?>
   </table></div>
@@ -209,7 +238,7 @@ if ($a === 'posts' || $a === 'pages') {
     <label class="check"><input type="checkbox" name="show_home" value="1" <?= $c['show_home'] ? 'checked' : '' ?>> Show on homepage & menu</label>
     <?= field('sort', 'Order', 'number', (string)$c['sort']) ?><?= field('description', 'Description', 'textarea', $c['description']) ?>
     <?= field('meta_title', 'SEO title', 'text', $c['meta_title']) ?><?= field('meta_desc', 'Meta description', 'textarea', $c['meta_desc']) ?>
-    <button class="btn block" style="margin-top:12px">Save category</button><?php if ($edit): ?><p><a href="?a=cats">+ Add new instead</a></p><?php endif; ?>
+    <button class="button button-primary block" style="margin-top:12px">Save category</button><?php if ($edit): ?><p><a href="?a=cats">+ Add new instead</a></p><?php endif; ?>
   </form></div>
 <?php } elseif ($a === 'settings') {
   $cats = ['' => '— Choose —']; foreach (categories() as $c) $cats[$c['id']] = $c['name'];
@@ -237,45 +266,53 @@ if ($a === 'posts' || $a === 'pages') {
       ['robots_extra', 'Extra robots.txt lines', 'code'], ['head_code', 'Code in <head> (AdSense, pixels…)', 'code'], ['footer_code', 'Code before </body>', 'code'], ['seo_noindex_site', 'Hide whole site from Google (staging only!)', 'check']],
   ];
   $tab = isset($tabs[$_GET['tab'] ?? '']) ? $_GET['tab'] : 'General'; ?>
-  <div class="bar"><h1>Settings</h1><a class="btn ghost" href="/" target="_blank">View Site ↗</a></div>
+  <h1 class="wp-heading">Settings</h1>
   <nav class="tabs"><?php foreach ($tabs as $t => $_): ?><a class="<?= $t === $tab ? 'on' : '' ?>" href="?a=settings&tab=<?= urlencode($t) ?>"><?= e($t) ?></a><?php endforeach; ?></nav>
   <form method="post" class="box settings"><?= csrf_field() ?><input type="hidden" name="tab" value="<?= e($tab) ?>">
     <?php foreach ($tabs[$tab] as $f): [$k, $label] = $f; $type = $f[2] ?? 'text'; $help = is_string($f[3] ?? null) ? $f[3] : '';
       if ($type === 'select') { echo '<label>' . e($label) . '<select name="s[' . $k . ']">'; foreach ($f[3] as $v => $l) echo '<option value="' . e($v) . '"' . ((string)$v === s($k) ? ' selected' : '') . '>' . e($l) . '</option>'; echo '</select></label>'; continue; }
       echo field("s[$k]", e($label), $type, s($k), $help); endforeach; ?>
-    <button class="btn" style="margin-top:16px">Save <?= e($tab) ?></button>
+    <button class="button button-primary" style="margin-top:16px">Save <?= e($tab) ?></button>
   </form>
   <script>window.PRODUCTS=null;</script><script src="/admin/editor.js?v=2"></script>
 <?php } elseif ($a === 'profile') { $u = db()->query('SELECT * FROM users WHERE id=' . $uid)->fetch(); ?>
-  <div class="bar"><h1>Profile</h1></div>
+  <h1 class="wp-heading">Profile</h1>
   <form method="post" class="box narrow-form" id="editor"><?= csrf_field() ?>
     <?= field('name', 'Display name (author)', 'text', $u['name']) ?><?= field('bio', 'Author bio', 'textarea', $u['bio']) ?><?= field('avatar', 'Photo', 'image', $u['avatar']) ?>
     <h3 style="margin-top:20px">Change password</h3><?= field('old', 'Current password', 'password') ?><?= field('new', 'New password (min 10)', 'password') ?>
-    <button class="btn" style="margin-top:16px">Save</button></form>
+    <button class="button button-primary" style="margin-top:16px">Save</button></form>
   <script>window.PRODUCTS=null;</script><script src="/admin/editor.js?v=2"></script>
 <?php } elseif ($a === 'subs') { $rows = db()->query('SELECT * FROM subscribers ORDER BY created_at DESC')->fetchAll(); ?>
-  <div class="bar"><h1>Subscribers (<?= count($rows) ?>)</h1><a class="btn" href="?a=export">Download CSV</a></div>
-  <table class="list"><tr><th>Email</th><th>Date</th><th></th></tr><?php foreach ($rows as $r): ?><tr><td><?= e($r['email']) ?></td><td><?= e(nice_date($r['created_at'])) ?></td>
+  <h1 class="wp-heading">Subscribers <a class="page-title-action" href="?a=export">Export CSV</a></h1><p class="muted"><?= count($rows) ?> subscribers</p>
+  <table class="wp-list-table"><tr><th>Email</th><th>Date</th><th></th></tr><?php foreach ($rows as $r): ?><tr><td><?= e($r['email']) ?></td><td><?= e(nice_date($r['created_at'])) ?></td>
     <td><form method="post" action="?a=sub-del"><?= csrf_field() ?><input type="hidden" name="email" value="<?= e($r['email']) ?>"><button class="link danger">Remove</button></form></td></tr><?php endforeach; ?></table>
 <?php } elseif ($a === 'redirects') { ?>
-  <div class="bar"><h1>301 Redirects</h1></div><p class="muted">Old URL → new URL. Created automatically when you change a published post's URL.</p>
-  <form method="post" class="inline"><?= csrf_field() ?><input name="src" placeholder="/old-url" required><input name="dest" placeholder="/new-url or https://…" required><button class="btn">Add</button></form>
-  <table class="list"><tr><th>From</th><th>To</th><th></th></tr><?php foreach (db()->query('SELECT * FROM redirects ORDER BY src') as $r): ?><tr><td><?= e($r['src']) ?></td><td><?= e($r['dest']) ?></td>
+  <h1 class="wp-heading">Redirects</h1><p class="muted">Old URL → new URL. Created automatically when you change a published post's URL.</p>
+  <form method="post" class="inline"><?= csrf_field() ?><input name="src" placeholder="/old-url" required><input name="dest" placeholder="/new-url or https://…" required><button class="button button-primary">Add</button></form>
+  <table class="wp-list-table"><tr><th>From</th><th>To</th><th></th></tr><?php foreach (db()->query('SELECT * FROM redirects ORDER BY src') as $r): ?><tr><td><?= e($r['src']) ?></td><td><?= e($r['dest']) ?></td>
     <td><form method="post"><?= csrf_field() ?><input type="hidden" name="del" value="<?= e($r['src']) ?>"><button class="link danger">Delete</button></form></td></tr><?php endforeach; ?></table>
 <?php }
-echo '</main><script>window.CSRF=' . json_encode(csrf()) . ';</script></body></html>';
+echo '</main><footer id="wpfooter">Thank you for creating with ' . e(s('site_name')) . ' CMS.</footer><script>window.CSRF=' . json_encode(csrf()) . ';</script></body></html>';
 
 /* ---------- view helpers ---------- */
-function admin_head(string $a, string $flash): void { $nav = ['posts' => 'Posts', 'pages' => 'Pages', 'cats' => 'Categories', 'settings' => 'Settings', 'subs' => 'Subscribers', 'redirects' => 'Redirects', 'profile' => 'Profile']; ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Admin · <?= e(s('site_name')) ?></title><link rel="stylesheet" href="/admin/admin.css?v=2"></head><body>
-<header class="ah"><a class="logo" href="/admin/"><?= e(s('site_name')) ?> <small>CMS</small></a>
-<nav><?php foreach ($nav as $k => $l): ?><a class="<?= $a === $k || ($a === 'edit' && $k === 'posts') ? 'on' : '' ?>" href="?a=<?= $k ?>"><?= $l ?></a><?php endforeach; ?><a href="/" target="_blank">Site ↗</a><a href="?a=logout">Logout</a></nav></header>
-<main class="am"><?php if ($flash): ?><div class="flash"><?= $flash ?></div><?php endif;
+function admin_head(string $a, string $flash): void {
+  $nav = ['dashboard' => ['home', 'Dashboard'], 'posts' => ['doc', 'Posts'], 'pages' => ['book', 'Pages'], 'cats' => ['grid', 'Categories'], 'subs' => ['mail', 'Subscribers'], 'settings' => ['gear', 'Settings'], 'redirects' => ['arrow', 'Redirects'], 'profile' => ['user', 'Profile']];
+  $cur = $a === 'edit' ? ((($_GET['type'] ?? '') === 'page') ? 'pages' : 'posts') : ($a === 'quickdraft' ? 'dashboard' : $a);
+  $me = db()->query('SELECT name, username, avatar FROM users WHERE id=' . (int)$_SESSION['uid'])->fetch(); ?>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e(ucfirst($cur)) ?> ‹ <?= e(s('site_name')) ?> — Admin</title><link rel="stylesheet" href="/admin/admin.css?v=3"></head><body class="wp-admin">
+<div id="adminbar"><button class="ab-menu" onclick="document.body.classList.toggle('menu-open')" aria-label="Menu"><?= tf_icon('menu', 18) ?></button>
+  <a href="/" target="_blank" class="ab-site"><?= tf_icon('home', 16) ?> <?= e(s('site_name')) ?></a>
+  <a href="?a=edit&type=post" class="ab-new">+ New</a>
+  <span class="ab-right"><span class="ab-user">Howdy, <b><?= e($me['name'] ?: $me['username']) ?></b><?= $me['avatar'] ? '<img src="' . e($me['avatar']) . '" alt="">' : '' ?></span><a href="?a=logout">Log Out</a></span></div>
+<div id="adminmenu"><ul><?php foreach ($nav as $k => [$ic, $l]): ?><li class="<?= $cur === $k ? 'current' : '' ?>"><a href="?a=<?= $k ?>"><?= tf_icon($ic, 18) ?><span><?= $l ?></span></a>
+  <?php if ($cur === $k && in_array($k, ['posts', 'pages'])): ?><ul class="submenu"><li><a href="?a=<?= $k ?>">All <?= $l ?></a></li><li><a href="?a=edit&type=<?= $k === 'pages' ? 'page' : 'post' ?>">Add New</a></li><?php if ($k === 'posts'): ?><li><a href="?a=cats">Categories</a></li><?php endif; ?></ul><?php endif; ?></li><?php endforeach; ?>
+  <li><a href="/" target="_blank"><?= tf_icon('globe', 18) ?><span>Visit Site</span></a></li></ul></div>
+<main id="wpcontent"><?php if ($flash): ?><div class="notice"><p><?= $flash ?></p></div><?php endif;
 }
 function auth_page(string $title, string $btn, string $err): void { ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e($title) ?></title><link rel="stylesheet" href="/admin/admin.css?v=2"></head>
-<body class="auth"><form method="post" class="auth-box"><div class="logo"><?= e(s('site_name')) ?></div><h1><?= e($title) ?></h1><?php if ($err): ?><div class="flash err"><?= e($err) ?></div><?php endif; ?>
-<?= csrf_field() ?><label>Username<input name="username" required autofocus autocomplete="username"></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button class="btn block"><?= e($btn) ?></button></form></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e($title) ?></title><link rel="stylesheet" href="/admin/admin.css?v=3"></head>
+<body class="login"><div class="login-wrap"><div class="login-logo"><?= e(s('site_name')) ?></div><form method="post" class="auth-box"><h1><?= e($title) ?></h1><?php if ($err): ?><div class="flash err"><?= e($err) ?></div><?php endif; ?>
+<?= csrf_field() ?><label>Username<input name="username" required autofocus autocomplete="username"></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button class="button button-primary button-large block"><?= e($btn) ?></button></form><p class="backto"><a href="/">← Go to <?= e(s('site_name')) ?></a></p></div></body></html>
 <?php }
 function seed(): void {
   $pdo = db(); $t = now();
