@@ -34,3 +34,9 @@ document.addEventListener('click', function (e) {
   if (TF.ga && window.gtag) gtag('event', 'affiliate_click', { link_url: a.href, link_text: label, post_title: TF.title, transport_type: 'beacon' });
   if (TF.track && navigator.sendBeacon) navigator.sendBeacon('/track', new Blob([JSON.stringify({ post: TF.post, url: a.href, label: label })], { type: 'application/json' }));
 }, true);
+// Sticky sidebar: if taller than the screen, stick by its bottom edge so no blank area appears
+(function () {
+  var sb = document.querySelector('.sidebar'); if (!sb) return;
+  function fit() { var t = Math.min(90, window.innerHeight - sb.offsetHeight - 20); sb.style.setProperty('--sb-top', t + 'px'); }
+  fit(); window.addEventListener('resize', fit); window.addEventListener('load', fit);
+})();

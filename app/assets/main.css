@@ -166,3 +166,7 @@ h1,h2,h3,h4{font-family:var(--serif);color:var(--ink);line-height:1.18;margin:0;
   .promo-copy{padding:24px}.newsletter{padding:22px}.nl-form{flex-direction:column}.nl-form .btn{justify-content:center}
   .quick-row{grid-template-columns:36px 1fr auto}.pbox{padding:20px 16px}}
 .sidebar .widget,.sidebar .popular{position:static}
+/* Sidebar: even gaps + sticks alongside the article until it ends */
+.single-wrap{align-items:start}
+.sidebar{display:flex;flex-direction:column;gap:24px}.sidebar>*{margin:0!important}
+@media(min-width:1001px){.sidebar{position:sticky;top:var(--sb-top,90px)}}
