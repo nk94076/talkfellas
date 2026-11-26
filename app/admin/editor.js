@@ -13,7 +13,7 @@ document.addEventListener('input', e => { const w = e.target.closest('.imgf'); i
 const editors = [];
 document.querySelectorAll('.rte').forEach(el => {
   if (window.Quill) {
-    const q = new Quill(el, { theme: 'snow', modules: { toolbar: [[{ header: [2, 3, 4, false] }], ['bold', 'italic', 'underline', 'strike'], [{ list: 'ordered' }, { list: 'bullet' }], ['link', 'image', 'video', 'blockquote', 'code-block'], [{ align: [] }], ['clean']] } });
+    const q = new Quill(el, { theme: 'snow', formats: ['header', 'bold', 'italic', 'underline', 'strike', 'list', 'bullet', 'link', 'image', 'video', 'blockquote', 'code-block', 'align', 'indent'], modules: { toolbar: [[{ header: [2, 3, 4, false] }], ['bold', 'italic', 'underline', 'strike'], [{ list: 'ordered' }, { list: 'bullet' }], ['link', 'image', 'video', 'blockquote', 'code-block'], [{ align: [] }], ['clean']] } });
     q.getModule('toolbar').addHandler('image', () => upload(url => { const r = q.getSelection(true); q.insertEmbed(r.index, 'image', url); }));
     editors.push([el.dataset.name, () => q.root.innerHTML === '<p><br></p>' ? '' : q.root.innerHTML]);
     q.on('text-change', seo);

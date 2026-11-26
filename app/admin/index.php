@@ -282,7 +282,7 @@ if ($a === 'dashboard') {
   </div></template>
   <script>window.PRODUCTS=<?= json_encode($prods, JSON_HEX_TAG | JSON_HEX_AMP) ?>;window.SITE=<?= json_encode(s('site_name')) ?>;window.SEP=<?= json_encode(s('seo_title_sep')) ?>;</script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css" rel="stylesheet"><script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
-  <script src="/admin/editor.js?v=2"></script>
+  <script src="/admin/editor.js?v=3"></script>
 <?php } elseif ($a === 'cats') {
   $edit = null; if (isset($_GET['id'])) foreach (categories() as $c) if ($c['id'] == $_GET['id']) $edit = $c;
   $c = $edit ?? ['id' => 0, 'name' => '', 'slug' => '', 'description' => '', 'icon' => 'grid', 'image' => '', 'show_home' => 1, 'sort' => count(categories()), 'meta_title' => '', 'meta_desc' => '']; ?>
@@ -337,7 +337,7 @@ if ($a === 'dashboard') {
       echo field("s[$k]", e($label), $type, $k === 'ai_api_key' ? '' : s($k), $help); endforeach; ?>
     <button class="button button-primary" style="margin-top:16px">Save <?= e($tab) ?></button>
   </form>
-  <script>window.PRODUCTS=null;</script><script src="/admin/editor.js?v=2"></script>
+  <script>window.PRODUCTS=null;</script><script src="/admin/editor.js?v=3"></script>
 <?php } elseif ($a === 'users') {
   $edit = isset($_GET['id']) ? db()->query('SELECT * FROM users WHERE id=' . (int)$_GET['id'])->fetch() : null;
   $u = $edit ?: ['id' => 0, 'username' => '', 'name' => '', 'email' => '', 'role' => 'editor']; ?>
@@ -372,7 +372,7 @@ if ($a === 'dashboard') {
     <?= field('name', 'Display name (author)', 'text', $u['name']) ?><?= field('bio', 'Author bio', 'textarea', $u['bio']) ?><?= field('avatar', 'Photo', 'image', $u['avatar']) ?>
     <h3 style="margin-top:20px">Change password</h3><?= field('old', 'Current password', 'password') ?><?= field('new', 'New password (min 10)', 'password') ?>
     <button class="button button-primary" style="margin-top:16px">Save</button></form>
-  <script>window.PRODUCTS=null;</script><script src="/admin/editor.js?v=2"></script>
+  <script>window.PRODUCTS=null;</script><script src="/admin/editor.js?v=3"></script>
 <?php } elseif ($a === 'subs') { $rows = db()->query('SELECT * FROM subscribers ORDER BY created_at DESC')->fetchAll(); ?>
   <h1 class="wp-heading">Subscribers <a class="page-title-action" href="?a=export">Export CSV</a></h1><p class="muted"><?= count($rows) ?> subscribers</p>
   <table class="wp-list-table"><tr><th>Email</th><th>Date</th><th></th></tr><?php foreach ($rows as $r): ?><tr><td><?= e($r['email']) ?></td><td><?= e(nice_date($r['created_at'])) ?></td>
@@ -394,7 +394,7 @@ function admin_head(string $a, string $flash): void {
   $me = db()->query('SELECT name, username, avatar FROM users WHERE id=' . (int)$_SESSION['uid'])->fetch(); $nm = $me['name'] ?: $me['username'];
   $titles = ['dashboard' => 'Dashboard', 'posts' => 'Posts', 'pages' => 'Pages', 'cats' => 'Categories', 'subs' => 'Subscribers', 'settings' => 'Settings', 'redirects' => 'Redirects', 'profile' => 'Profile', 'users' => 'Users', 'ai' => 'AI Writer']; ?>
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e($titles[$cur] ?? 'Admin') ?> · <?= e(s('site_name')) ?> CMS</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"><link rel="stylesheet" href="/admin/admin.css?v=4"></head><body class="cms">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"><link rel="stylesheet" href="/admin/admin.css?v=5"></head><body class="cms">
 <aside id="sidebar">
   <a class="sb-brand" href="?a=dashboard"><span class="sb-logo"><?= tf_icon('users', 22) ?></span><span><?= e(s('site_name')) ?><br>CMS</span></a>
   <nav><?php foreach ($nav as $n): if ($n === '-') { echo '<hr>'; continue; } [$k, $ic, $l] = $n; ?><a class="<?= $cur === $k ? 'on' : '' ?>" href="?a=<?= $k ?>"><?= tf_icon($ic, 19) ?><span><?= $l ?></span></a><?php endforeach; ?>
@@ -412,7 +412,7 @@ function admin_head(string $a, string $flash): void {
   <main id="content"><?php if ($flash): ?><div class="notice"><?= $flash ?></div><?php endif;
 }
 function auth_page(string $title, string $btn, string $err): void { ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e($title) ?></title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"><link rel="stylesheet" href="/admin/admin.css?v=4"></head>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title><?= e($title) ?></title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"><link rel="stylesheet" href="/admin/admin.css?v=5"></head>
 <body class="login"><div class="login-wrap"><div class="login-logo"><span class="sb-logo"><?= tf_icon('users', 22) ?></span><?= e(s('site_name')) ?> CMS</div><form method="post" class="auth-box"><h1><?= e($title) ?></h1><?php if ($err): ?><div class="flash err"><?= e($err) ?></div><?php endif; ?>
 <?= csrf_field() ?><label>Username<input name="username" required autofocus autocomplete="username"></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button class="button button-primary button-large block"><?= e($btn) ?></button></form><p class="backto"><a href="/">← Go to <?= e(s('site_name')) ?></a></p></div></body></html>
 <?php }

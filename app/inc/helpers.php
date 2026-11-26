@@ -115,6 +115,11 @@ function card(array $p, bool $excerpt = true): void { ?>
 function clean_html($html): string {
   $html = preg_replace('#<(script|style|iframe(?![^>]*src="https://(www\.)?(youtube\.com|youtube-nocookie\.com|player\.vimeo\.com)/)|object|embed)[^>]*>.*?</\1>#is', '', (string)$html);
   $html = preg_replace('#\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $html);
+  // strip pasted Word/Docs formatting: inline styles, colours, fonts, classes (keeps Quill alignment/indent classes)
+  $html = preg_replace('#\s(style|bgcolor|color|face|size|lang|dir)\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $html);
+  $html = preg_replace_callback('#\sclass\s*=\s*"([^"]*)"#i', fn($m) => ($k = implode(' ', array_filter(explode(' ', $m[1]), fn($c) => preg_match('/^(ql-(align|indent|video)|aff)/', $c)))) ? ' class="' . $k . '"' : '', $html);
+  $html = preg_replace('#</?(font|span|o:p|w:[a-z]+)\b[^>]*>#i', '', $html);
+  $html = preg_replace('#<!--.*?-->#s', '', $html);
   return preg_replace('#(href|src)\s*=\s*(["\'])\s*javascript:[^"\']*\2#i', '$1="#"', $html);
 }
 // Add id anchors to H2/H3 and return [html, toc]

@@ -34,7 +34,7 @@ function head(array $seo = []): void {
 <link rel="alternate" type="application/rss+xml" title="<?= e($name) ?>" href="/feed.xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="/assets/main.css?v=2">
+<link rel="stylesheet" href="/assets/main.css?v=3">
 <style>:root{--brand:<?= e(preg_match('/^#[0-9a-f]{3,8}$/i', s('brand_color')) ? s('brand_color') : '#f26522') ?>;--navy:<?= e(preg_match('/^#[0-9a-f]{3,8}$/i', s('dark_color')) ? s('dark_color') : '#13213c') ?>}</style>
 <script>try{var t=localStorage.getItem('tf-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 <?php foreach ($schema as $sc): ?><script type="application/ld+json"><?= json_encode(array_filter($sc, fn($v) => $v !== null && $v !== []), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?></script>
@@ -88,7 +88,7 @@ function foot(): void { ?>
   </div>
   <div class="container foot-copy"><?= e(str_replace('{year}', date('Y'), s('footer_copy'))) ?></div>
 </footer>
-<script src="/assets/main.js?v=2" defer></script>
+<script src="/assets/main.js?v=3" defer></script>
 <?= is_staff() ? '' : s('footer_code') ?>
 </body></html>
 <?php }
